@@ -42,13 +42,20 @@ def test_sell_print_at_or_below_threshold_fills():
     assert r.yes_fill.ts == 1100
 
 
-def test_buy_print_below_threshold_does_NOT_fill():
-    """A BUY (ask lift) does not prove a seller would reach our resting bid."""
-    bt = TapeBacktester(TapeConfig(threshold=0.45))
+def test_trade_through_buy_print_below_threshold_fills():
+    """Default: a BUY <= T means the ask reached <= T, so a resting bid at T filled."""
+    bt = TapeBacktester(TapeConfig(threshold=0.45))   # default fill_mode='trade_through'
+    w = _tw([_t(1100, "BUY", 0.13)], [], resolution_yes=1.0)
+    f = bt.run_window(w).yes_fill
+    assert f is not None and f.fill_price == pytest.approx(0.45) and f.ts == 1100
+
+
+def test_sell_through_buy_print_below_threshold_does_NOT_fill():
+    """Conservative mode: a BUY (ask lift) alone does not fill a resting bid."""
+    bt = TapeBacktester(TapeConfig(threshold=0.45, fill_mode="sell_through"))
     w = _tw([_t(1100, "BUY", 0.13)], [], resolution_yes=1.0)
     r = bt.run_window(w)
-    assert r.yes_fill is None
-    assert r.outcome == NO_FILL
+    assert r.yes_fill is None and r.outcome == NO_FILL
 
 
 def test_sell_above_threshold_does_not_fill():
@@ -135,7 +142,8 @@ def test_unhedged_win():
 
 def test_no_fill_window_is_flat():
     bt = TapeBacktester(TapeConfig(threshold=0.45))
-    w = _tw([_t(1100, "BUY", 0.10)], [_t(1110, "SELL", 0.80, token="N")], resolution_yes=1.0)
+    # neither token ever trades <= 0.45 (both stay rich the whole window)
+    w = _tw([_t(1100, "BUY", 0.55)], [_t(1110, "SELL", 0.80, token="N")], resolution_yes=1.0)
     r = bt.run_window(w)
     assert r.n_legs == 0 and r.outcome == NO_FILL
     assert r.cost == 0.0 and r.payout == 0.0 and r.pnl == 0.0

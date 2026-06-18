@@ -5,11 +5,12 @@ this consumes the full executed-trade tape (`trades.TradeWindow`) and fills on
 PROVEN marketable liquidity only.
 
 Fill model (designed against the real tape; see research/findings.json):
-  * A resting BUY at threshold T fills ONLY when a SELL print on that token
-    prints at price <= T. A SELL means a taker hit a resting bid at that price,
-    so the book was bid there and our resting bid at T (>= that price) would have
-    been hit first by price-time priority. BUY prints (ask lifts) do NOT fill a
-    resting BUY — using them is the classic look-ahead/optimism error.
+  * A resting BUY at threshold T fills when the price TRADES THROUGH T. Two modes
+    (`TapeConfig.fill_mode`): "trade_through" (default) fills on ANY print <= T —
+    the standard limit-order rule, since a trade at <= T means the best ask reached
+    <= T and a resting bid at T was marketable; "sell_through" is the conservative
+    variant that fills only on a SELL print <= T (a taker demonstrably hit a bid at
+    our level), which undercounts fills reached via the descending ask.
   * Execution price is our limit T (we are the passive order; we get our posted
     price, never the deeper print). Conservative on price.
   * YES and NO are independent streams: each leg fills on its own clock, so the
@@ -39,9 +40,15 @@ class TapeConfig:
     threshold: float = 0.45
     fee_bps: float = 0.0
     size: float = 1.0
-    participation: float = 1.0          # fraction of a SELL print's size we can capture
+    participation: float = 1.0          # fraction of a triggering print's size we can capture
     exclude_settlement_tail: bool = True
-    convergence_guard_s: float = 0.0    # also drop SELLs in the last N in-window seconds
+    convergence_guard_s: float = 0.0    # also drop prints in the last N in-window seconds
+    fill_mode: str = "trade_through"    # see _fill_leg
+    # "trade_through": a resting BUY at T fills if the price TRADES THROUGH T (any
+    #     print <= T). Standard limit-order fill rule: if a trade occurs at <= T the
+    #     best ask reached <= T, so a resting bid at T was marketable and filled.
+    # "sell_through": conservative — fill only on a SELL print <= T (a taker
+    #     demonstrably hit a resting bid at our level). Undercounts fills via the ask.
 
 
 @dataclass(frozen=True)
@@ -94,7 +101,9 @@ class TapeBacktester:
         first_ts: float | None = None
         trigger_price: float | None = None
         for t in prints:
-            if t.side != "SELL" or t.price > cfg.threshold:
+            if t.price > cfg.threshold:
+                continue
+            if cfg.fill_mode == "sell_through" and t.side != "SELL":
                 continue
             if first_ts is None:
                 first_ts, trigger_price = t.ts, t.price
