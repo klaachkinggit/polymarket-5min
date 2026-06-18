@@ -371,28 +371,94 @@ if TAPE_OK:
 md(r"""
 ### What the high-fidelity tape reveals
 
-Running the same strategy on ~190k real trades instead of ~400 mids does **not**
-rescue it — and it explains *why* with far higher confidence:
+Running on ~190k real trades (vs ~400 mids) with the correct **trade-through**
+fill rule (a resting BUY at `T` fills when the price trades `<= T`; `sell_through`
+is the conservative bound) shows the double-dip **is real and frequent** — but
+**every single-leg fill is the loser** (`UNHEDGED_WIN` = 0). When the market
+oscillates, both legs fill (a lock); when it *trends*, only the cheap losing side
+fills and the winner never reverses. §6 derives the best threshold from the data.
+""")
 
-- **The double-dip is real and frequent.** ~66% of windows lock arbitrage at
-  T=0.45 (vs ~42% under the coarse mid): when the market oscillates across 0.50
-  intra-window, *both* legs cross the threshold at different seconds and you hold a
-  guaranteed-$1 pair for < $1.
-- **But every single-leg fill is the loser** (`UNHEDGED_WIN` = 0). When the market
-  *trends*, only the losing side gets cheap; the winner stays expensive and never
-  fills. You are adversely selected into holding losers.
-- **The payoff is structurally lopsided.** A lock earns `1 − 2T` = **+$0.10** at
-  T=0.45; an unhedged loss costs **−$0.45**. At ~2 locks per loss, the losses win.
-  Net P&L is **negative at every threshold 0.35–0.49, even at zero fees and under a
-  generous (front-of-queue) fill assumption.** Fees only deepen it.
+# ============================================================ 6. DATA-DRIVEN THRESHOLD
+md(r"""
+## 6 — Data-Driven Threshold Selection
 
-**Verdict.** Better data did not create edge; it *confirmed* its absence with 190k
-real trades and revealed the mechanism the 1-minute mid hid. The passive double-dip
-is not viable as stated. The production-relevant fix is a **decision rule that
-refuses to hold an unhedged leg** (cancel/exit the first leg if the second hasn't
-filled by a cutoff) — turning a directional gamble into actual arbitrage. That is a
-different strategy to test next, ideally on live CLOB WebSocket book data so fills
-are validated against real resting depth rather than inferred from the trade tape.
+Rather than fix a threshold range up front, **analyse the tape first**: when do
+trades happen, how deep does each side reverse, and *then* read off the threshold
+that maximises P&L.
+""")
+
+code(r"""
+# (a) When do trades occur within the 5-minute window?
+if TAPE_OK:
+    buckets = np.zeros(5)
+    for w in tape_windows:
+        for t in w.yes_trades + w.no_trades:
+            buckets[min(int((t.ts - w.open_ts) / 60), 4)] += 1
+    plt.bar(range(5), buckets / buckets.sum() * 100, color="tab:purple")
+    plt.xticks(range(5), ["0-1", "1-2", "2-3", "3-4", "4-5"])
+    plt.xlabel("minute into window"); plt.ylabel("% of all trades")
+    plt.title("Volume is spread across the window — early reversals are tradable"); plt.show()
+    print("trades per minute (%):", np.round(buckets / buckets.sum() * 100, 1))
+""")
+
+code(r"""
+# (b) Reversal depth: how often does each side trade <= T?
+if TAPE_OK:
+    def wl_mins(w):
+        ymin = min((t.price for t in w.yes_trades), default=1.0)
+        nmin = min((t.price for t in w.no_trades), default=1.0)
+        win = ymin if w.resolution_yes == 1.0 else nmin
+        los = nmin if w.resolution_yes == 1.0 else ymin
+        return win, los
+    wl = [wl_mins(w) for w in tape_windows]
+    Ts = np.round(np.arange(0.42, 0.498, 0.005), 3)
+    winr = [100 * np.mean([wm <= T for wm, _ in wl]) for T in Ts]
+    losr = [100 * np.mean([lm <= T for _, lm in wl]) for T in Ts]
+    plt.plot(Ts, winr, "o-", color="tab:green", label="WINNER reverses <= T  (=> both-fill / lock)")
+    plt.plot(Ts, losr, "s-", color="tab:red", label="loser reaches <= T")
+    plt.xlabel("threshold T"); plt.ylabel("% of windows"); plt.legend()
+    plt.title("Loser ~always reaches T; the winner only sometimes reverses"); plt.show()
+""")
+
+code(r"""
+# (c) Read the optimal threshold straight off the P&L curve (both fill models)
+if TAPE_OK:
+    Tg = np.round(np.arange(0.44, 0.498, 0.004), 3)
+    for mode in ("trade_through", "sell_through"):
+        sw = tape_threshold_sweep(tape_windows, Tg, base_cfg=TapeConfig(fill_mode=mode))
+        b = sw.loc[sw.net_profit.idxmax()]
+        print(f"{mode:13s}: optimal T={b.threshold:.3f}  net=${b.net_profit:6.2f}  "
+              f"both-fill={b.both_fill_rate:5.1%}  unhedged-loss={b.unhedged_loss_rate:5.1%}")
+    sw = tape_threshold_sweep(tape_windows, Tg, base_cfg=TapeConfig(fill_mode="trade_through"))
+    plt.plot(sw.threshold, sw.net_profit, "o-"); plt.axhline(0, c="grey", lw=.8)
+    plt.xlabel("threshold"); plt.ylabel("net profit ($), 80 windows")
+    plt.title("Net profit peaks near T=0.49 — but never crosses zero"); plt.show()
+""")
+
+md(r"""
+### Verdict (data-driven)
+
+- **Trades are spread across all 5 minutes** and the loser reaches `T` in ~100% of
+  windows — reversals are real and tradable, confirming the intuition.
+- **The winner reverses below 0.49 in only ~89% of windows.** The other ~11% are
+  clean trends (winner bottoms at 0.50–0.52, *complete* data — not truncation:
+  0 of the trend windows are truncated). You cannot tell them apart at entry.
+- **Optimal threshold is ~0.49**, and net P&L there is still **negative** (≈ −$0.04
+  / window). The reason is a hard payoff asymmetry: a lock earns `1 − 2T` = **2¢**
+  at 0.49, but each clean-trend window costs **~49¢**. Break-even needs the
+  clean-trend rate below ~4%; we observe ~11%.
+- An **active-exit** variant (abandon an unhedged leg after Δ seconds) was explored
+  off-notebook: best case ≈ −$1.9 (vs −$3.0 passive) — better, but still negative,
+  and that estimate ignores the spread you cross on exit.
+
+**Bottom line.** Across every realistic modelling choice on the best available
+*historical* data, the passive double-dip does not clear zero. The one untested
+lever is whether the early-window **quote** reversals (order-book mid, which moves
+without trading) are *fillable* — but historical book depth does not exist publicly
+(it is off-chain; only fills settle on-chain). Settling that requires collecting the
+live CLOB WebSocket book going forward (`research/findings.json` has the collector
+design). **Do not deploy** the passive strategy on this evidence.
 """)
 
 nb = new_notebook(cells=C, metadata={"kernelspec": {"name": "python3",

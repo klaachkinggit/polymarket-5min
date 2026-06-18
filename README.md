@@ -107,24 +107,26 @@ print(summary(TapeBacktester(TapeConfig(threshold=0.45)).run(wins)))
 
 ## Finding
 
-Both data layers reach the **same verdict — no edge — and the high-fidelity tape
-says it with far higher confidence.**
+Methodology (per §6): **analyse the tape first, then read the threshold off the data.**
 
-**Mid model (§1-4, 80 BTC windows, 0.5% half-spread):** net profit negative at every
-threshold 0.40–0.49 (profit factor ≈ 0.61–0.82). The coarse mid hides the intra-window
-dynamics and under-counts double-dips.
+- **Trades span the whole window** (≈23/22/20/19/16% per minute; all 80 windows have
+  trades in the first 3 min) — early reversals are real and tradable.
+- **Fill model corrected.** A resting BUY at `T` fills when the price *trades through*
+  `T` (`fill_mode="trade_through"`, the standard limit rule), not only on a SELL print.
+  This halved the loss vs the conservative `sell_through` bound and moved the optimum up.
+- **Data-driven optimum ≈ T=0.49**, and net P&L there is **still negative** (≈ −$0.04
+  /window, 0 fees, generous fills). The loser reaches `T` ~100% of the time but the
+  **winner only reverses below 0.49 in ~89%** of windows; the other ~11% are clean
+  trends (winner bottoms 0.50–0.52, *complete data* — 0 of them truncated). A lock earns
+  `1 − 2T` = **2¢** at 0.49 while each trend costs **~49¢**: break-even needs the
+  clean-trend rate < ~4%, observed ~11%.
+- **Active exit explored** (abandon an unhedged leg after Δs): best ≈ −$1.9 vs −$3.0
+  passive — better, still negative (and optimistic: ignores exit spread).
 
-**Trade-tape model (§5, same 80 windows, ~190k real trades):** running on real fills
-*raises* the arb-lock rate to ~66% at T=0.45 (vs ~42% on the mid) — the double-dip
-genuinely happens when the market oscillates across 0.50 — **yet net P&L is still
-negative at every threshold 0.35–0.49, even at zero fees under a generous
-front-of-queue fill.** Why: every single-leg fill is the **loser** (`UNHEDGED_WIN`
-= 0) — when the market *trends*, only the losing side gets cheap and you hold it. A
-lock earns `1 − 2T` = +$0.10 at T=0.45; an unhedged loss costs −$0.45, so ~2 locks
-per loss isn't enough.
-
-**Verdict.** Better data didn't create edge; it confirmed its absence and revealed the
-mechanism. The passive double-dip isn't viable as stated. The production fix is a
-**decision rule that refuses to hold an unhedged leg** (cancel/exit if the second leg
-hasn't filled by a cutoff), validated on live WebSocket book data. **Do not deploy**
-the passive strategy. See notebook §4 (mid) and §5 (tape).
+**Verdict.** Across every realistic model on the best *historical* data (mid → trade
+tape → trade-through → optimal threshold → active exit), the passive double-dip does
+not clear zero. The one untested lever — whether early-window **quote** reversals
+(book mid, which moves without trading) are fillable — can't be settled historically:
+book depth is off-chain (only fills settle on-chain), so it needs a forward CLOB
+WebSocket collector (`research/findings.json`). **Do not deploy** on this evidence.
+See notebook §4 (mid), §5 (tape), §6 (data-driven threshold).
