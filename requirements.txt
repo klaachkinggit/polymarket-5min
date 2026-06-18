@@ -1,0 +1,8 @@
+requests>=2.31
+pandas>=2.0
+numpy>=1.26
+matplotlib>=3.8
+plotly>=5.20
+nbformat>=5.9
+jupyter>=1.0
+pytest>=8.0

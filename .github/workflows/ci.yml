@@ -1,0 +1,59 @@
+name: CI
+
+# Tool-agnostic backstop: runs on GitHub regardless of which agent (or human) wrote the code.
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Harness preflight
+        run: tools/preflight-harness.sh
+
+      - name: Detect stack
+        id: detect
+        run: |
+          echo "node=$([ -f package.json ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "python=$([ -f pyproject.toml ] || [ -f requirements.txt ] || [ -f setup.cfg ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Secret scan (committed files)
+        run: |
+          if grep -rInE "(password|secret|token|api_key|apikey|aws_secret)[[:space:]]*[:=][[:space:]]*['\"][^'\"]{8,}" \
+               --include='*.js' --include='*.ts' --include='*.py' --include='*.go' --include='*.rs' \
+               --exclude-dir=node_modules --exclude-dir=.git . ; then
+            echo "::error::Possible hardcoded secret found"; exit 1
+          fi
+          echo "No obvious secrets found."
+
+      - name: Setup Node
+        if: steps.detect.outputs.node == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Node — install, lint, test
+        if: steps.detect.outputs.node == 'true'
+        run: |
+          npm ci
+          npm run lint --if-present
+          npm test --if-present
+
+      - name: Setup Python
+        if: steps.detect.outputs.python == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Python — install, lint, test
+        if: steps.detect.outputs.python == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          [ -f requirements.txt ] && pip install -r requirements.txt || true
+          pip install ruff pytest
+          ruff check .
+          pytest -q

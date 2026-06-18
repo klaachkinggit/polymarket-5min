@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Universal pre-commit guard — runs under ANY agent or human (git-level, tool-agnostic).
+# Activate: git config core.hooksPath .githooks   (apply.sh does this for you)
+# Bypass once (use sparingly): git commit --no-verify
+set -uo pipefail
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$STAGED" ] && exit 0
+
+# 1. Hard-block committing sensitive files.
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in
+    *.env|*.env.*|*.pem|*.key|*.p12|*.pfx|*id_rsa*|*id_ed25519*|*credentials.json|*.netrc)
+      echo "pre-commit BLOCKED: refusing to commit sensitive file: $f" >&2
+      echo "  Remove it from staging, or override with: git commit --no-verify" >&2
+      exit 1 ;;
+  esac
+done <<< "$STAGED"
+
+# 2. Block obvious hardcoded secrets in staged content.
+SECRET_HITS=$(git diff --cached -U0 | grep -nE "^\+.*(password|secret|token|api_key|apikey|aws_secret)[[:space:]]*[:=][[:space:]]*['\"][^'\"]{8,}" 2>/dev/null || true)
+if [ -n "$SECRET_HITS" ]; then
+  echo "pre-commit BLOCKED: possible hardcoded secret in staged changes:" >&2
+  printf '%s\n' "$SECRET_HITS" | head -5 >&2
+  echo "  Review above. Override with: git commit --no-verify" >&2
+  exit 1
+fi
+
+# 3. Best-effort auto-format of staged files, then re-stage (never blocks).
+fmt() {
+  local file="$1"
+  [ -f "$file" ] || return 0
+  case "$file" in
+    .codex/skills/*|.claude/skills/*) return 0 ;;
+  esac
+  case "${file##*.}" in
+    js|jsx|ts|tsx|css|scss|json|html|md|yaml|yml)
+      if [ -x "node_modules/.bin/prettier" ]; then node_modules/.bin/prettier --write "$file" 2>/dev/null || true
+      elif command -v prettier >/dev/null 2>&1; then prettier --write "$file" 2>/dev/null || true; fi ;;
+    py)
+      command -v ruff >/dev/null 2>&1 && ruff format "$file" --quiet 2>/dev/null || true
+      command -v black >/dev/null 2>&1 && black "$file" --quiet 2>/dev/null || true ;;
+    go)  command -v gofmt   >/dev/null 2>&1 && gofmt -w "$file"   2>/dev/null || true ;;
+    rs)  command -v rustfmt >/dev/null 2>&1 && rustfmt "$file"    2>/dev/null || true ;;
+  esac
+  git add "$file" 2>/dev/null || true
+}
+while IFS= read -r f; do [ -n "$f" ] && fmt "$f"; done <<< "$STAGED"
+
+exit 0

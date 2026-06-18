@@ -1,0 +1,15 @@
+.venv/
+.cache/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+notebooks/*.nbconvert.ipynb
+
+# runtime / secrets
+.env
+.env.example
+.claude/bash.log
+
+# harness source clone (lives on GitHub; not part of this project)
+klaach_harness/

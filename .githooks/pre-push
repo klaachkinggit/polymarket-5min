@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Universal pre-push test gate — runs under ANY agent or human (git-level, tool-agnostic).
+# Activate: git config core.hooksPath .githooks   (apply.sh does this for you)
+# Bypass once (use sparingly): git push --no-verify
+set -uo pipefail
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$ROOT" || exit 0
+
+fail() { echo "pre-push BLOCKED: $1" >&2; echo "  Override with: git push --no-verify" >&2; exit 1; }
+
+if [ -f package.json ]; then
+  HAS_TEST=$(python3 -c "
+import json
+try:
+    t = json.load(open('package.json')).get('scripts', {}).get('test', '')
+    print('1' if t and 'no test specified' not in t and t != 'exit 1' else '')
+except Exception:
+    print('')
+" 2>/dev/null)
+  if [ -n "$HAS_TEST" ]; then
+    echo "pre-push: running npm test..." >&2
+    npm test --silent || fail "npm test failed"
+  fi
+elif [ -f pyproject.toml ] || [ -f pytest.ini ] || [ -f setup.cfg ] || [ -d tests ]; then
+  if command -v pytest >/dev/null 2>&1; then
+    echo "pre-push: running pytest..." >&2
+    pytest -q --tb=short || fail "pytest failed"
+  fi
+fi
+
+exit 0
