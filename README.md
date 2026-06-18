@@ -22,12 +22,15 @@ polymarket_arb/
   trades.py     TradeHistoryClient: full executed-trade tape (data-api), TradeWindow, offset paging
   synth.py      high-fidelity synthetic windows (BS digital off GBM) for validation/stress
   engine.py     ArbBacktester (mid-based) state machine, ExecConfig, Fill, WindowResult
-  tape_engine.py TapeBacktester: SELL-print fill model over the real trade tape, TapeConfig/TapeResult
+  tape_engine.py TapeBacktester: trade-through fill model over the real tape, TapeConfig/TapeResult
+  active.py     ActiveExitBacktester: double-dip that abandons an unhedged leg after a timeout
+  momentum.py   MomentumBacktester + autocorr_stats: cross-window serial-correlation bet
+  collector.py  BookCollector: forward-only live CLOB WebSocket L2 order-book recorder
   metrics.py    equity curve, drawdown, win/fill/arb-lock/unhedged-loss rates, profit factor
   optimize.py   threshold_sweep / param_grid (mid) + tape_threshold_sweep / tape_param_grid (tape)
-tests/          per-constraint verification (look-ahead, slippage/fee, state integrity) — 51 tests
+tests/          per-constraint verification (look-ahead, slippage/fee, state integrity) — 72 tests
 research/findings.json   verified on-chain + WebSocket routes and the fill-model design
-notebooks/      polymarket_5min_arb.ipynb  (§1-4 mid, §5 high-fidelity trade tape)
+notebooks/      polymarket_5min_arb.ipynb  (§1-4 mid, §5 tape, §6 data-driven threshold)
 build_notebook.py   regenerates the notebook from source cells
 ```
 
@@ -36,7 +39,7 @@ build_notebook.py   regenerates the notebook from source cells
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python -m pytest tests/ -q            # 51 tests
+python -m pytest tests/ -q            # 72 tests
 python build_notebook.py             # (re)build the notebook
 jupyter lab notebooks/polymarket_5min_arb.ipynb
 ```
@@ -105,7 +108,24 @@ print(summary(TapeBacktester(TapeConfig(threshold=0.45)).run(wins)))
   Polymarket-style `fee_bps/1e4 * size * min(p, 1-p)`.
 - **Sizing.** 1 share per leg per window (`size`), per spec.
 
-## Finding
+## Strategies tested (390 windows: btc 150 / eth 120 / sol 120)
+
+All on the high-fidelity trade tape, look-ahead-safe, best-case parameters:
+
+| Strategy | Module | Best net (390 win) | Per-window | Verdict |
+|----------|--------|--------------------|------------|---------|
+| Passive double-dip | `tape_engine` | −$32.8 @ T=0.48 | −$0.084 | No edge |
+| Active-exit double-dip | `active` | −$11.6 @ 5s timeout | −$0.030 | No edge (better) |
+| Momentum (bet same as prev) | `momentum` | −$14.6 | −$0.042 | Loses |
+| **Reversal (bet opposite)** | `momentum` | **+$9.7** (+$6.5 w/ fees) | **+$0.028** | Positive but **t≈1, not significant** |
+
+Outcomes are **mean-reverting**, not momentum: lag-1 autocorrelation ≈ **−0.10**
+(consistent across all three assets), P(Up\|prev Up) ≈ 0.41. Betting *against* the
+last window is the only net-positive result, and it survives fees + spread — but at
+t≈1 it is statistically indistinguishable from noise on this sample. It is the most
+promising lead and warrants ~4× more data to confirm; **not yet deployable.**
+
+## Finding (double-dip)
 
 Methodology (per §6): **analyse the tape first, then read the threshold off the data.**
 
