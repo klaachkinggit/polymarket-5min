@@ -24,6 +24,7 @@ from pathlib import Path
 import websocket  # websocket-client
 
 from .data import PolymarketClient
+from .trades import WINDOW_SECONDS, _slug_window
 
 WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
@@ -34,8 +35,9 @@ def discover_live_windows(client: PolymarketClient, asset: str | None = None,
                           max_windows: int = 50) -> list[dict]:
     """Open (not-yet-closed) 5-minute Up/Down windows with their two CLOB tokens."""
     want = asset.lower() if asset else None
+    # ascending startDate: the longest-open markets resolve soonest (close = open + ~20h)
     batch = client._get(client.gamma, "/events", closed="false", tag_slug="crypto",
-                        order="startDate", ascending="false", limit=200, offset=0)
+                        order="startDate", ascending="true", limit=200, offset=0)
     out: list[dict] = []
     for ev in batch or []:
         slug = ev.get("slug") or ""
@@ -49,9 +51,43 @@ def discover_live_windows(client: PolymarketClient, asset: str | None = None,
         if len(toks) != 2:
             continue
         out.append({"slug": slug, "conditionId": m.get("conditionId"),
-                    "yes": str(toks[0]), "no": str(toks[1])})
+                    "yes": str(toks[0]), "no": str(toks[1]),
+                    "open_ts": _slug_window(slug)[0]})
         if len(out) >= max_windows:
             break
+    return out
+
+
+DEFAULT_ASSETS = ("btc", "eth", "sol", "bnb", "doge")
+
+
+def discover_current_windows(client: PolymarketClient, assets=DEFAULT_ASSETS,
+                             horizon_s: float = 1800.0, now: float | None = None) -> list[dict]:
+    """Windows whose 5-min scoring period is happening now or within `horizon_s`.
+
+    5-min slugs are clock-aligned (open_ts is a multiple of WINDOW_SECONDS), so we
+    enumerate the current + upcoming slug timestamps per asset and fetch each by
+    slug — reliable regardless of the discovery endpoint's ordering/offset caps.
+    """
+    now = time.time() if now is None else now
+    base = (int(now) // WINDOW_SECONDS) * WINDOW_SECONDS
+    out: list[dict] = []
+    for asset in ([assets] if isinstance(assets, str) else assets):
+        ts = base
+        while ts <= now + horizon_s:
+            slug = f"{asset}-updown-5m-{ts}"
+            evs = client._get(client.gamma, "/events", slug=slug)
+            ev = evs[0] if isinstance(evs, list) and evs else None
+            if ev:
+                m = (ev.get("markets") or [{}])[0]
+                try:
+                    toks = json.loads(m.get("clobTokenIds") or "[]")
+                except json.JSONDecodeError:
+                    toks = []
+                if len(toks) == 2:
+                    out.append({"slug": slug, "conditionId": m.get("conditionId"),
+                                "yes": str(toks[0]), "no": str(toks[1]), "open_ts": ts})
+            ts += WINDOW_SECONDS
     return out
 
 
@@ -70,7 +106,9 @@ class BookCollector:
         Returns (events_written, path). Each line: the raw server message plus
         `recv_ts` (local unix seconds) and the owning `slug`.
         """
-        wins = discover_live_windows(self.client, asset, max_windows)
+        # windows whose 5-min scoring period happens during the capture horizon
+        assets = asset if asset else DEFAULT_ASSETS
+        wins = discover_current_windows(self.client, assets, horizon_s=duration_s)[:max_windows]
         token_to_slug: dict[str, str] = {}
         token_ids: list[str] = []
         for w in wins:

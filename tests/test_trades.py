@@ -117,6 +117,22 @@ def test_build_window_can_include_settlement_tail():
     assert SETTLE_TAIL_S >= 30
 
 
+def test_load_history_walks_back_by_300_and_stops_after_max_gap():
+    c = TradeHistoryClient()
+    present = {3000, 2700, 2400}                       # then 2100,1800 missing -> stop
+    c.fetch_event_by_slug = lambda slug: (
+        {"slug": slug} if int(slug.rsplit("-", 1)[1]) in present else None)
+    c.build_window = lambda ev, **k: TradeWindow(
+        slug=ev["slug"], asset="BTC",
+        open_ts=int(ev["slug"].rsplit("-", 1)[1]),
+        close_ts=int(ev["slug"].rsplit("-", 1)[1]) + 300,
+        yes_token="Y", no_token="N",
+        yes_trades=[Trade(0.0, "Y", "SELL", 0.5, 1.0, "0x", 0)], no_trades=[],
+        resolution_yes=1.0)
+    out = c.load_history("btc", count=10, end_ts=3000, use_cache=False, max_gap=2)
+    assert [w.open_ts for w in out] == [3000, 2700, 2400]
+
+
 def test_build_window_roundtrips_through_cache_dict():
     c = TradeHistoryClient()
     trades = [_row(1000, "Y", price=0.44), _row(1010, "N", price=0.55)]

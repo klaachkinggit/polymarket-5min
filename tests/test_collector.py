@@ -1,5 +1,6 @@
 """Collector discovery logic (no network — client._get is stubbed)."""
-from polymarket_arb.collector import discover_live_windows
+from polymarket_arb.collector import (discover_current_windows,
+                                       discover_live_windows)
 from polymarket_arb.data import PolymarketClient
 
 
@@ -35,3 +36,17 @@ def test_discover_respects_max_windows_and_no_asset_filter():
 def test_discover_skips_markets_without_two_tokens():
     bad = {"slug": "btc-updown-5m-1", "markets": [{"conditionId": "0x", "clobTokenIds": "[]"}]}
     assert discover_live_windows(_client([bad]), asset="btc") == []
+
+
+def test_discover_current_windows_enumerates_clock_aligned_slugs():
+    c = PolymarketClient(cache_dir=".cache")
+    present = {"btc-updown-5m-900", "btc-updown-5m-1200"}   # 1500 absent
+
+    def fake(base, path, **p):
+        slug = p.get("slug")
+        return ([{"slug": slug, "markets": [{"conditionId": "0xc",
+                 "clobTokenIds": '["Y", "N"]'}]}] if slug in present else [])
+    c._get = fake
+    out = discover_current_windows(c, assets="btc", horizon_s=600, now=1000)  # base=900
+    assert [w["open_ts"] for w in out] == [900, 1200]
+    assert out[0]["yes"] == "Y" and out[0]["no"] == "N"

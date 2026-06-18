@@ -207,6 +207,44 @@ class TradeHistoryClient:
             resolution_yes=_parse_resolution(market), truncated=truncated,
         )
 
+    def fetch_event_by_slug(self, slug: str) -> dict | None:
+        evs = self.client._get(self.client.gamma, "/events", slug=slug)
+        return evs[0] if isinstance(evs, list) and evs else None
+
+    def load_history(self, asset: str, count: int, end_ts: int | None = None,
+                     use_cache: bool = True, max_gap: int = 40,
+                     include_settlement_tail: bool = False) -> list[TradeWindow]:
+        """Walk slug timestamps BACKWARD from the latest window, fetching each by
+        slug. Bypasses the Gamma discovery offset cap (~2000), so history depth is
+        unbounded. `max_gap` consecutive missing/unresolved/empty slugs ends the walk.
+        Caches per slug (shared with `load_dataset`)."""
+        if end_ts is None:
+            evs = self.client.discover_5m_events(asset=asset, closed=True, max_events=1)
+            if not evs:
+                return []
+            end_ts = int(evs[0]["slug"].rsplit("-", 1)[1])
+        out: list[TradeWindow] = []
+        ts = int(end_ts)
+        gap = 0
+        while len(out) < count and gap < max_gap and ts > 0:
+            slug = f"{asset}-updown-5m-{ts}"
+            ts -= WINDOW_SECONDS
+            cache_path = self.cache_dir / f"trades-{slug}.json"
+            if use_cache and cache_path.exists():
+                w = TradeWindow.from_dict(json.loads(cache_path.read_text()))
+            else:
+                ev = self.fetch_event_by_slug(slug)
+                w = self.build_window(ev, include_settlement_tail=include_settlement_tail) if ev else None
+                if w is not None and use_cache:
+                    cache_path.write_text(json.dumps(w.to_dict()))
+            if w is None or not w.resolved or w.n_trades == 0:
+                gap += 1
+                continue
+            gap = 0
+            out.append(w)
+        log.info("load_history %s: %d windows (walked back to ts=%d)", asset, len(out), ts)
+        return out
+
     def load_dataset(self, asset: str | None = None, max_windows: int = 80,
                      resolved_only: bool = True, use_cache: bool = True,
                      include_settlement_tail: bool = False) -> list[TradeWindow]:
