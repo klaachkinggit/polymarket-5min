@@ -6,6 +6,8 @@ from .data import MarketWindow, PolymarketClient, Tick
 from .engine import (ARB_LOCKED, HEDGED_NEGEDGE, NO_FILL, UNHEDGED_LOSS,
                      UNHEDGED_WIN, ArbBacktester, ExecConfig, Fill, WindowResult)
 from .metrics import equity_curve, max_drawdown, summary
+from .momentum import (MomentumBacktester, MomentumConfig, MomentumResult,
+                       autocorr_stats, momentum_summary)
 from .optimize import (param_grid, tape_param_grid, tape_threshold_sweep,
                        threshold_sweep)
 from .synth import generate_dataset, generate_window
@@ -23,4 +25,6 @@ __all__ = [
     "TapeBacktester", "TapeConfig", "TapeFill", "TapeResult",
     "ActiveConfig", "ActiveExitBacktester", "ActiveResult", "EXIT_WIN", "EXIT_LOSS",
     "BookCollector", "discover_live_windows",
+    "MomentumBacktester", "MomentumConfig", "MomentumResult",
+    "autocorr_stats", "momentum_summary",
 ]
