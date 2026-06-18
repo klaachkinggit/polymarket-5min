@@ -1,4 +1,7 @@
 """Polymarket 5-minute Up/Down double-dip arbitrage backtester."""
+from .active import (EXIT_LOSS, EXIT_WIN, ActiveConfig, ActiveExitBacktester,
+                     ActiveResult)
+from .collector import BookCollector, discover_live_windows
 from .data import MarketWindow, PolymarketClient, Tick
 from .engine import (ARB_LOCKED, HEDGED_NEGEDGE, NO_FILL, UNHEDGED_LOSS,
                      UNHEDGED_WIN, ArbBacktester, ExecConfig, Fill, WindowResult)
@@ -18,4 +21,6 @@ __all__ = [
     "generate_dataset", "generate_window",
     "Trade", "TradeHistoryClient", "TradeWindow",
     "TapeBacktester", "TapeConfig", "TapeFill", "TapeResult",
+    "ActiveConfig", "ActiveExitBacktester", "ActiveResult", "EXIT_WIN", "EXIT_LOSS",
+    "BookCollector", "discover_live_windows",
 ]

@@ -147,12 +147,16 @@ class PolymarketClient:
         out: list[dict] = []
         offset = 0
         while len(out) < max_events:
-            batch = self._get(
-                self.gamma, "/events",
-                closed=str(closed).lower(), tag_slug="crypto",
-                order="startDate", ascending="false",
-                limit=page, offset=offset,
-            )
+            try:
+                batch = self._get(
+                    self.gamma, "/events",
+                    closed=str(closed).lower(), tag_slug="crypto",
+                    order="startDate", ascending="false",
+                    limit=page, offset=offset,
+                )
+            except requests.HTTPError as ex:   # gamma caps offset (~2000) -> 422
+                log.warning("discovery stopped at offset %d: %s", offset, ex)
+                break
             if not batch:
                 break
             for ev in batch:

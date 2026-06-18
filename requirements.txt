@@ -5,4 +5,5 @@ matplotlib>=3.8
 plotly>=5.20
 nbformat>=5.9
 jupyter>=1.0
+websocket-client>=1.7    # live CLOB order-book collector (polymarket_arb.collector)
 pytest>=8.0
