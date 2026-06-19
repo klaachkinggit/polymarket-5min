@@ -120,38 +120,53 @@ class BookCollector:
             return 0, None
 
         path = self.out_dir / f"book-{asset or 'all'}-{int(time.time())}.jsonl"
-        ws = websocket.create_connection(self.ws_url, timeout=20)
+        sub = json.dumps({"assets_ids": token_ids, "type": "market"})
+        deadline = time.time() + duration_s
         n = 0
-        try:
-            ws.send(json.dumps({"assets_ids": token_ids, "type": "market"}))
-            deadline = time.time() + duration_s
-            with open(path, "a") as f:
-                while time.time() < deadline:
-                    try:
-                        raw = ws.recv()
-                    except websocket.WebSocketTimeoutException:
-                        continue
-                    if not raw:
-                        continue
-                    recv_ts = time.time()
-                    try:
-                        msgs = json.loads(raw)
-                    except json.JSONDecodeError:
-                        continue
-                    if isinstance(msgs, dict):
-                        msgs = [msgs]
-                    for m in msgs:
-                        if not isinstance(m, dict):
+        done = False
+        with open(path, "a") as f:
+            while time.time() < deadline and not done:
+                try:
+                    ws = websocket.create_connection(self.ws_url, timeout=20)
+                    ws.send(sub)
+                except Exception as ex:                       # connect/handshake failed
+                    log.warning("connect failed (%s); retrying in 2s", ex)
+                    time.sleep(2)
+                    continue
+                try:
+                    while time.time() < deadline:
+                        try:
+                            raw = ws.recv()
+                        except websocket.WebSocketTimeoutException:
                             continue
-                        rec = {"recv_ts": recv_ts,
-                               "slug": token_to_slug.get(m.get("asset_id")), **m}
-                        f.write(json.dumps(rec) + "\n")
-                        n += 1
-                    f.flush()
-                    if max_messages and n >= max_messages:
-                        break
-        finally:
-            ws.close()
+                        except Exception as ex:               # disconnect -> reconnect
+                            log.warning("recv error (%s); reconnecting", ex)
+                            break
+                        if not raw:
+                            continue
+                        recv_ts = time.time()
+                        try:
+                            msgs = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(msgs, dict):
+                            msgs = [msgs]
+                        for m in msgs:
+                            if not isinstance(m, dict):
+                                continue
+                            rec = {"recv_ts": recv_ts,
+                                   "slug": token_to_slug.get(m.get("asset_id")), **m}
+                            f.write(json.dumps(rec) + "\n")
+                            n += 1
+                        f.flush()
+                        if max_messages and n >= max_messages:
+                            done = True
+                            break
+                finally:
+                    try:
+                        ws.close()
+                    except Exception:
+                        pass
         log.info("wrote %d events to %s (%d tokens, %d windows)",
                  n, path, len(token_ids), len(wins))
         return n, str(path)

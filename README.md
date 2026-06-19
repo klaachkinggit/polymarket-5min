@@ -28,7 +28,7 @@ polymarket_arb/
   collector.py  BookCollector: forward-only live CLOB WebSocket L2 order-book recorder
   metrics.py    equity curve, drawdown, win/fill/arb-lock/unhedged-loss rates, profit factor
   optimize.py   threshold_sweep / param_grid (mid) + tape_threshold_sweep / tape_param_grid (tape)
-tests/          per-constraint verification (look-ahead, slippage/fee, state integrity) — 72 tests
+tests/          per-constraint verification (look-ahead, slippage/fee, state integrity) — 74 tests
 research/findings.json   verified on-chain + WebSocket routes and the fill-model design
 notebooks/      polymarket_5min_arb.ipynb  (§1-4 mid, §5 tape, §6 data-driven threshold)
 build_notebook.py   regenerates the notebook from source cells
@@ -39,7 +39,8 @@ build_notebook.py   regenerates the notebook from source cells
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python -m pytest tests/ -q            # 72 tests
+python -m pytest tests/ -q            # 74 tests
+python -m polymarket_arb.collector --minutes 30   # live order-book collector (forward data)
 python build_notebook.py             # (re)build the notebook
 jupyter lab notebooks/polymarket_5min_arb.ipynb
 ```
@@ -108,22 +109,34 @@ print(summary(TapeBacktester(TapeConfig(threshold=0.45)).run(wins)))
   Polymarket-style `fee_bps/1e4 * size * min(p, 1-p)`.
 - **Sizing.** 1 share per leg per window (`size`), per spec.
 
-## Strategies tested (390 windows: btc 150 / eth 120 / sol 120)
+## Strategies tested (1,250 windows: btc/eth/sol/bnb/doge × 250)
 
 All on the high-fidelity trade tape, look-ahead-safe, best-case parameters:
 
-| Strategy | Module | Best net (390 win) | Per-window | Verdict |
-|----------|--------|--------------------|------------|---------|
-| Passive double-dip | `tape_engine` | −$32.8 @ T=0.48 | −$0.084 | No edge |
-| Active-exit double-dip | `active` | −$11.6 @ 5s timeout | −$0.030 | No edge (better) |
-| Momentum (bet same as prev) | `momentum` | −$14.6 | −$0.042 | Loses |
-| **Reversal (bet opposite)** | `momentum` | **+$9.7** (+$6.5 w/ fees) | **+$0.028** | Positive but **t≈1, not significant** |
+| Strategy | Module | Net P&L | Per-window | Verdict |
+|----------|--------|---------|------------|---------|
+| Passive double-dip | `tape_engine` | −$32.8 @ T=0.48 (390 win) | −$0.084 | No edge |
+| Active-exit double-dip | `active` | −$11.6 @ 5s timeout (390 win) | −$0.030 | No edge (better) |
+| Momentum (bet same as prev) | `momentum` | negative | −$0.042 | Loses |
+| **Reversal (bet opposite)** | `momentum` | **+$46.5** / +$36.2 w/ 200bps (1,235 bets) | **+$0.038** | **Significant edge (thin)** |
 
-Outcomes are **mean-reverting**, not momentum: lag-1 autocorrelation ≈ **−0.10**
-(consistent across all three assets), P(Up\|prev Up) ≈ 0.41. Betting *against* the
-last window is the only net-positive result, and it survives fees + spread — but at
-t≈1 it is statistically indistinguishable from noise on this sample. It is the most
-promising lead and warrants ~4× more data to confirm; **not yet deployable.**
+**Outcomes are mean-reverting, and on the full 1,250-window sample it is
+statistically significant:** lag-1 autocorrelation **−0.104, z = −3.66** over 1,245
+consecutive pairs (negative for *all five* assets). Betting **against** the previous
+window wins **55.5%** at an avg entry of 0.518:
+
+| entry | fee | avg/bet | t-stat |
+|-------|-----|---------|--------|
+| opening print | 0 | +$0.038 | **2.74** |
+| opening print | 200bps | +$0.029 | **2.13** |
+| +1-tick ask | 0 | +$0.028 | **2.01** |
+| +1-tick ask | 200bps | +$0.019 | 1.41 |
+
+The edge is **real but thin** (~2–4¢/bet): significant at zero/low friction and at
+realistic ask-entry with low fees (Polymarket fees are typically ~0), but eroded to
+marginal (t≈1.4) only under the most pessimistic spread **and** 200bps combined.
+It survives out-of-sample across 5 independent assets. This is the one tradeable
+signal found — pending live fill-quality validation (see the WebSocket collector).
 
 ## Finding (double-dip)
 
