@@ -10,6 +10,9 @@ from .momentum import (MomentumBacktester, MomentumConfig, MomentumResult,
                        autocorr_stats, momentum_summary)
 from .optimize import (param_grid, tape_param_grid, tape_threshold_sweep,
                        threshold_sweep)
+from .reversal_analysis import (autocorr_table, block_bootstrap,
+                                clustered_tstat, friction_grid, load_all,
+                                naive_tstat, sample_decay)
 from .synth import generate_dataset, generate_window
 from .tape_engine import TapeBacktester, TapeConfig, TapeFill, TapeResult
 from .trades import Trade, TradeHistoryClient, TradeWindow
@@ -27,4 +30,6 @@ __all__ = [
     "BookCollector", "discover_live_windows",
     "MomentumBacktester", "MomentumConfig", "MomentumResult",
     "autocorr_stats", "momentum_summary",
+    "load_all", "naive_tstat", "clustered_tstat", "block_bootstrap",
+    "autocorr_table", "friction_grid", "sample_decay",
 ]

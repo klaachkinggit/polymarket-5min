@@ -1,5 +1,5 @@
 """Collector discovery logic (no network — client._get is stubbed)."""
-from polymarket_arb.collector import (discover_current_windows,
+from polymarket_arb.collector import (BookCollector, discover_current_windows,
                                        discover_live_windows)
 from polymarket_arb.data import PolymarketClient
 
@@ -50,3 +50,37 @@ def test_discover_current_windows_enumerates_clock_aligned_slugs():
     out = discover_current_windows(c, assets="btc", horizon_s=600, now=1000)  # base=900
     assert [w["open_ts"] for w in out] == [900, 1200]
     assert out[0]["yes"] == "Y" and out[0]["no"] == "N"
+
+
+# ---- non-stop (forever) mode -----------------------------------------------
+def test_daily_path_rotates_by_utc_day(tmp_path):
+    bc = BookCollector(out_dir=tmp_path)
+    p1 = bc._daily_path(None, now=0)            # 1970-01-01 UTC
+    p2 = bc._daily_path(None, now=86400)        # 1970-01-02 UTC
+    assert p1.name == "book-all-19700101.jsonl"
+    assert p2.name == "book-all-19700102.jsonl"
+
+
+def test_tokens_builds_subscription_list_and_slug_map():
+    wins = [{"slug": "btc-updown-5m-300", "yes": "Y1", "no": "N1"},
+            {"slug": "eth-updown-5m-300", "yes": "Y2", "no": "N2"}]
+    ids, m = BookCollector._tokens(wins)
+    assert ids == ["Y1", "N1", "Y2", "N2"]
+    assert m["Y1"] == "btc-updown-5m-300" and m["N2"] == "eth-updown-5m-300"
+
+
+def test_collect_forever_re_discovers_each_cycle_and_stops_at_max_cycles(tmp_path):
+    c = PolymarketClient(cache_dir=".cache")
+    c._get = lambda base, path, **p: (
+        [{"slug": p.get("slug"), "markets": [{"conditionId": "0xc",
+          "clobTokenIds": '["Y", "N"]'}]}] if p.get("slug") else [])
+    bc = BookCollector(out_dir=tmp_path, client=c)
+    cycles = {"n": 0}
+
+    def fake_stream(token_ids, token_to_slug, f, deadline, n=0, max_messages=None):
+        cycles["n"] += 1
+        assert token_ids == ["Y", "N"]          # discovered fresh each cycle
+        return 7, False
+    bc._stream_until = fake_stream
+    total = bc.collect_forever(asset="btc", refresh_s=0.01, horizon_s=0, max_cycles=3)
+    assert cycles["n"] == 3 and total == 21

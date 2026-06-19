@@ -10,6 +10,14 @@ OPENING executed price and hold to settlement.
 Edge requires the market to MISPRICE serial correlation: a profitable momentum bet
 needs entry_price < P(correct). If the book already prices the autocorrelation,
 the opening price absorbs it and EV <= 0.
+
+Entry realism (audit fix): a market BUY can only fill at the ASK. An executed SELL
+print is a taker hitting the resting BID, so entering at a SELL print understates
+cost. By default (`entry_side="buy"`) we enter at the earliest in-window BUY
+(ask-lift) print — real evidence the ask was takeable at that price — never a
+SELL/bid print. `entry_side="any"` restores the older (optimistic) behavior for
+contrast. Truncated windows (tape hit the API offset cap, so the earliest retained
+print is not the true open) are excluded by default.
 """
 from __future__ import annotations
 
@@ -26,7 +34,11 @@ class MomentumConfig:
     direction: str = "momentum"     # "momentum" (bet same as prev) | "reversal" (opposite)
     fee_bps: float = 0.0
     size: float = 1.0
-    entry_half_spread: float = 0.0  # added to the opening print (we buy at the ask)
+    entry_half_spread: float = 0.0  # added on top of the entry quote (extra slippage stress)
+    entry_side: str = "buy"         # "buy": earliest BUY (ask-lift) print [realistic] | "any": earliest print
+    exclude_truncated: bool = True  # drop windows whose tape hit the API offset cap (shifted open)
+    require_both_quotes: bool = False  # bet only pairs where BOTH tokens have an entry quote
+                                       # (outcome-independent sample; de-biases the win-rate)
 
 
 @dataclass
@@ -58,10 +70,13 @@ def _consecutive_pairs(windows: list[TradeWindow]):
                 yield a, b
 
 
-def _opening_price(w: TradeWindow, bet_up: bool) -> float | None:
-    """Earliest in-window executed price of the bet token (opening proxy)."""
+def _opening_quote(w: TradeWindow, bet_up: bool, taker_side: str | None = None) -> float | None:
+    """Earliest in-window executed price of the bet token, optionally filtered to a
+    taker side. `taker_side="BUY"` => earliest ask-lift print (the price a market BUY
+    would have paid); None => earliest print regardless of side (optimistic)."""
     trades = w.yes_trades if bet_up else w.no_trades
-    inwin = [t for t in trades if w.open_ts <= t.ts < w.close_ts]
+    inwin = [t for t in trades if w.open_ts <= t.ts < w.close_ts
+             and (taker_side is None or t.side == taker_side)]
     return min(inwin, key=lambda t: t.ts).price if inwin else None
 
 
@@ -100,14 +115,25 @@ class MomentumBacktester:
 
     def run(self, windows: list[TradeWindow]) -> list[MomentumResult]:
         cfg = self.cfg
+        taker = "BUY" if cfg.entry_side == "buy" else None
+        self.n_skipped_truncated = 0   # tape hit the offset cap -> open price unreliable
+        self.n_skipped_nofill = 0      # bet token never lifted the ask in-window -> no entry
+        self.n_skipped_oneside = 0     # require_both_quotes: opposite token had no quote
         out: list[MomentumResult] = []
         for prev, cur in _consecutive_pairs(windows):
+            if cfg.exclude_truncated and cur.truncated:
+                self.n_skipped_truncated += 1
+                continue
             bet_up = (prev.resolution_yes == 1.0) if cfg.direction == "momentum" \
                 else (prev.resolution_yes == 0.0)
-            open_px = _opening_price(cur, bet_up)
-            if open_px is None:
+            ask = _opening_quote(cur, bet_up, taker)
+            if ask is None:
+                self.n_skipped_nofill += 1
                 continue
-            entry = min(1.0, open_px + cfg.entry_half_spread)   # buy at the ask
+            if cfg.require_both_quotes and _opening_quote(cur, not bet_up, taker) is None:
+                self.n_skipped_oneside += 1
+                continue
+            entry = min(1.0, ask + cfg.entry_half_spread)   # fill at the ask (+ stress)
             fee = (cfg.fee_bps / 1e4) * cfg.size * max(0.0, min(entry, 1.0 - entry))
             correct = (cur.resolution_yes == 1.0) == bet_up
             payout = cfg.size if correct else 0.0
