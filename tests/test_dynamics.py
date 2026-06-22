@@ -113,6 +113,21 @@ def test_moments_symmetric_has_zero_skew():
     assert m["skew"] == pytest.approx(0.0, abs=1e-9)
 
 
+def test_terminal_convergence_buckets_are_disjoint_not_collapsed():
+    from polymarket_arb.dynamics import terminal_convergence
+    w = TradeWindow(slug="btc-updown-5m-0", asset="BTC", open_ts=0.0, close_ts=300.0,
+                    yes_token="Y", no_token="N",
+                    yes_trades=[Trade(60, "Y", "BUY", 0.6, 1, "0x", 0),    # ttc 240
+                                Trade(180, "Y", "BUY", 0.7, 1, "0x", 0),   # ttc 120
+                                Trade(250, "Y", "BUY", 0.8, 1, "0x", 0),   # ttc 50 -> 60
+                                Trade(295, "Y", "BUY", 0.95, 1, "0x", 0)], # ttc 5 -> 10
+                    no_trades=[Trade(1, "N", "BUY", 0.5, 1, "0x", 1)],
+                    resolution_yes=1.0)
+    rows = {r["sec_to_close<="]: r["n"] for r in terminal_convergence([w])}
+    nonzero = {b for b, n in rows.items() if n > 0}
+    assert nonzero == {10, 60, 120, 240}   # the descending-bucket bug would give {240} only
+
+
 def test_statsmodels_wrappers_accept_plain_lists():
     from polymarket_arb.dynamics import arch_lm, ljung_box
     xs = [math.sin(i) * 0.01 + (0.005 if i % 7 == 0 else 0.0) for i in range(300)]

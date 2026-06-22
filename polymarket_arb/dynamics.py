@@ -336,16 +336,18 @@ def spot_resolution_agreement(windows: list[TradeWindow], cache_dir: str = SPOT_
     return {a: {"n": len(v), "agree_rate": sum(v) / len(v)} for a, v in by.items() if v}
 
 
-def terminal_convergence(windows: list[TradeWindow], buckets=(240, 180, 120, 60, 30, 10)) -> list[dict]:
+def terminal_convergence(windows: list[TradeWindow], buckets=(10, 30, 60, 120, 180, 240)) -> list[dict]:
     """Mean |mid − outcome| as a function of seconds-to-close. A bounded martingale must
-    converge to the realized outcome, so this should fall monotonically toward 0."""
+    converge to the realized outcome, so this should fall monotonically toward 0.
+    `buckets` MUST be ascending so each point lands in the smallest band it qualifies for
+    (disjoint bands); descending order would collapse everything into the largest bucket."""
     acc = {b: [] for b in buckets}
     for w in windows:
         if not w.resolved:
             continue
         for ts, mid in token_mid_path(w):
             ttc = w.close_ts - ts
-            for b in buckets:
+            for b in buckets:                  # ascending: first (smallest) match wins
                 if ttc <= b:
                     acc[b].append(abs(mid - w.resolution_yes))
                     break

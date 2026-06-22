@@ -84,7 +84,7 @@ md(r"""
 ## 2 — Why no directional edge can exist (the digital-option argument)
 
 Fair YES = `Φ(SNR)`, `SNR = μ·√n / σ`. With `μ, σ` measured from the data, the per-asset
-SNR is ~0.05 in magnitude, so `P(Up) ≈ 0.5` to first order. **Volatility sets the *level*
+SNR is ~0.02 in magnitude (≈0), so `P(Up) ≈ 0.5` to first order. **Volatility sets the *level*
 (it pins the price near 0.5); it cannot create a directional edge.** Model vs realized:
 """)
 code(r"""
@@ -140,19 +140,22 @@ print(f"opening mid mean dev from 0.5: {dev['mean']:+.4f}, cluster-robust t={dev
       f"({dev['n_clusters']} clusters)")
 vx = np.array([x for x, _ in volpairs]); vy = np.array([y for _, y in volpairs])
 slope = np.polyfit(vx, vy, 1)[0]; corr = np.corrcoef(vx, vy)[0, 1]
-print(f"|opening-0.5| ~ realized vol: slope={slope:.2f}, corr={corr:.3f} (flat => vol doesn't pick direction)")
+print(f"|opening-0.5| ~ realized vol: slope={slope:.2f}, corr={corr:.3f} "
+      f"(weak +ve magnitude link; vol sets distance from 0.5, NOT the sign; descriptive/contemporaneous)")
 sums = [s["mean_sum"] for s in (yes_no_sum_stats(w) for w in allw) if s]
 print(f"no-arb: mean (YES+NO) print sum = {np.mean(sums):.3f}")
 """)
 
 # ---- 5. martingale + arcsine ----
 md(r"""
-## 5 — The token mid is a bounded martingale; "reverses early" is the arcsine law
+## 5 — The token mid is a bounded martingale; "reverses early" is arcsine-like
 
 The mid must converge to the realized outcome by close (bounded martingale). Its increments
 have ~zero autocorrelation **on the constructed mid** — the negative value on raw prints is
 **bid/ask bounce**, not predictable alpha. The frequent early 0.5-crossings are the
-arcsine/sign-change behaviour of a martingale near 0.5 — no serial structure to trade.
+arcsine/sign-change behaviour of a martingale near 0.5 (the overlay is an approximation —
+level fixed at 0.5, and the token is a bounded/absorbing martingale, not free BM) — no
+serial structure to trade.
 """)
 code(r"""
 mid_ac, raw_ac, cross_raw, cross_mid, frac = [], [], [], [], []
@@ -165,9 +168,9 @@ for w in allw:
         fa = fraction_time_above(mp);  frac.append(fa) if fa == fa else None
     if len(rp) >= 5:
         ac = lag1_autocorr(list(np.diff([p for _, p in rp])));  raw_ac.append(ac) if ac == ac else None
-        cross_raw.append(crossing_count([p for _, p in rp]))
-print(f"increment lag-1 autocorr: mid={np.mean(mid_ac):+.3f}  raw={np.mean(raw_ac):+.3f} (raw = bounce)")
-print(f"0.5-crossings/window: mid(10s grid)={np.mean(cross_mid):.1f}  raw prints={np.mean(cross_raw):.1f}")
+        cross_raw.append(crossing_count(resample_last(rp, w.open_ts, w.close_ts, 10.0)))  # same grid as mid
+print(f"increment lag-1 autocorr: mid={np.mean(mid_ac):+.3f}  raw={np.mean(raw_ac):+.3f} (raw negative = bid/ask bounce)")
+print(f"0.5-crossings/window (both on 10s grid): mid={np.mean(cross_mid):.1f}  raw={np.mean(cross_raw):.1f}")
 
 fig, ax = plt.subplots(1, 2, figsize=(10, 3.4))
 term = [t for t in terminal_convergence(allw) if t["n"] > 0][::-1]
@@ -208,7 +211,7 @@ md(r"""
 The 5-min Up/Down market is an **efficiently-priced at-the-money digital option on a
 near-driftless, fat-tailed random walk**: well-calibrated (low Brier), its mid a bounded
 martingale converging to the outcome, the underlying a 5-min random walk (VR≈1, z\*
-insignificant), directional SNR ≈ 0.05. This is the **mechanism** behind every empirical
+insignificant), directional SNR ≈ 0.02 (≈0). This is the **mechanism** behind every empirical
 null (arb in the companion notebook; momentum & reversal here). The "reverses many times
 early" intuition is the arcsine behaviour of a martingale near 0.5 — real, but with no
 serial structure to trade. The only remaining lever is execution/microstructure, which the

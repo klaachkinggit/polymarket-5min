@@ -29,7 +29,7 @@ create a *directional* edge. Realized vs model:
 
 | asset | model fair P(Up)=Φ(SNR) | realized P(Up) | n |
 |---|---|---|---|
-| btc | 0.493 | 0.544 | 500 |
+| btc | 0.493 | 0.534 | 500 |
 | eth | 0.494 | 0.494 | 500 |
 | sol | 0.501 | 0.516 | 500 |
 | bnb | 0.489 | 0.508 | 500 |
@@ -39,27 +39,28 @@ create a *directional* edge. Realized vs model:
 ## 3. The data source is validated (spot direction vs resolution)
 | asset | agreement | n |
 |---|---|---|
-| btc | 0.952 | 499 |
+| btc | 0.953 | 337 |
 | eth | 0.982 | 495 |
 | sol | 0.987 | 479 |
 | bnb | 0.980 | 493 |
 | doge | 0.992 | 477 |
 | xrp | 0.979 | 481 |
 
-Binance 1m direction matches the Polymarket resolution 97.8% pooled — the reference is BTCUSDT-family; residual disagreement is exact-tie / 1m-vs-exact-close timing.
+Binance 1m direction matches the Polymarket resolution 98.0% pooled — the reference is BTCUSDT-family; residual disagreement is exact-tie / 1m-vs-exact-close timing.
 
 ## 4. The binary is well-calibrated — but with a wide effective spread
 - **Calibration**: opening mid P(Up) tracks the realized YES frequency along y=x; **Brier =
-  0.220** (vs 0.25 for a naive flat-0.5 forecast) — the prices are informative and calibrated.
-- **Opening mid ≈ 0.5**: mean deviation -0.0158 (cluster-robust t = -3.83,
-  728 wall-clock clusters) — statistically a hair *below* 0.5 (~1.3pp),
+  0.219** (vs 0.25 for a naive flat-0.5 forecast) — the prices are informative and calibrated.
+- **Opening mid ≈ 0.5**: mean deviation -0.0146 (cluster-robust t = -3.63,
+  889 wall-clock clusters) — statistically a hair *below* 0.5 (~1.3pp),
   economically negligible and far inside the spread.
 - **Wide effective spread / overround**: the contemporaneous (YES+NO) print sum averages
-  **1.091** — a ~9% round-trip. This friction alone swamps any thin
+  **1.090** — a ~9% round-trip. This friction alone swamps any thin
   directional edge, and is the microstructure reason every strategy fails net of costs.
-- **Vol sets magnitude, not direction**: regressing |opening mid − 0.5| on realized vol gives a
-  weak corr 0.107 (higher vol ⇒ the mid sits a little further from 0.5) — but vol does not
-  predict the *sign*, exactly as the SNR argument requires.
+- **Vol sets magnitude, not direction**: a (contemporaneous, descriptive) regression of
+  |opening mid − 0.5| on in-window realized vol gives a weak corr 0.096 (higher vol ⇒ the
+  mid sits a little further from 0.5) — but vol does not predict the *sign*, as the SNR argument
+  requires. (Descriptive only — realized vol is not known at the open, so this is not a signal.)
 - **Bounded-martingale convergence**: mean |mid − outcome| falls monotonically to ~0 by close
   (see figure) — the token is a martingale converging to {0,1}.
 
@@ -70,13 +71,15 @@ Binance 1m direction matches the Polymarket resolution 97.8% pooled — the refe
 - Constructed-mid increment lag-1 autocorrelation: **0.042** (mid) vs
   **-0.139** (raw prints). The raw negative value is mostly **bid/ask
   bounce** (Roll 1984); on the bounce-reduced mid it shrinks toward 0 (martingale increments).
-- 0.5-crossings/window (resampled mid, 10s grid): mean **1.5**
-  vs raw prints **4.2** — raw counts are inflated by bounce.
-- **Arcsine law**: the fraction of in-window time the mid spends above 0.5 is **U-shaped**
-  (most windows spend nearly all their time on the eventual winning side), matching the Lévy
-  arcsine law for a martingale — NOT clustering of "early reversals." The frequent early
-  crossings are the bounded martingale wandering near 0.5 before committing; there is no
-  serial structure to trade.
+- 0.5-crossings/window, **both on the same 10s grid** (so the gap is bounce, not sampling):
+  mid **1.5** vs raw prints **1.5**
+  — the bounce-reduced mid crosses less.
+- **Arcsine behaviour**: the fraction of in-window time the mid spends above 0.5 is **U-shaped**
+  (most windows spend nearly all their time on the eventual winning side) — qualitatively
+  consistent with the Lévy arcsine law for a martingale, NOT clustering of "early reversals."
+  (The overlay is approximate: the level is fixed at 0.5 while the opening mid is ~0.49, and the
+  token is a *bounded, absorbing* martingale rather than free Brownian motion.) The frequent
+  early crossings are the martingale wandering near 0.5 before committing — no tradeable structure.
 
 ![return distribution](figures/return_dist.png)
 ![arcsine](figures/arcsine.png)
@@ -85,7 +88,8 @@ Binance 1m direction matches the Polymarket resolution 97.8% pooled — the refe
 The 5-min Up/Down market is an **efficiently-priced at-the-money digital option on a
 near-driftless, fat-tailed random walk**. It is well-calibrated, its mid is a bounded
 martingale converging to the outcome, the underlying is a 5-min random walk, and the
-directional signal-to-noise is ≈0.05. **This is the mechanism behind every empirical
+directional signal-to-noise is **≈0.022**
+in magnitude (≈0). **This is the mechanism behind every empirical
 null result** (arb, momentum, reversal): there is no directional edge to extract. The
 only remaining lever is execution/microstructure — fillability of quote reversals — which
 the forward order-book collector is gathering data to test.

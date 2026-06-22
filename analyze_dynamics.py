@@ -86,7 +86,8 @@ def main():
             ac = lag1_autocorr(rr)
             if ac == ac:
                 raw_ac.append(ac)
-            cross_raw.append(crossing_count([px for _, px in rp], 0.5))
+            # same 10s grid as the mid so the gap reflects bounce, not sampling density
+            cross_raw.append(crossing_count(resample_last(rp, w.open_ts, w.close_ts, 10.0), 0.5))
         op = opening_mid_prob(w)
         if op is not None:
             opens.append(op)
@@ -208,9 +209,10 @@ Binance 1m direction matches the Polymarket resolution {f(100*sum(d['agree_rate'
 - **Wide effective spread / overround**: the contemporaneous (YES+NO) print sum averages
   **{f(mean_sum)}** — a ~{f(100*(mean_sum-1),0)}% round-trip. This friction alone swamps any thin
   directional edge, and is the microstructure reason every strategy fails net of costs.
-- **Vol sets magnitude, not direction**: regressing |opening mid − 0.5| on realized vol gives a
-  weak corr {f(corr,3)} (higher vol ⇒ the mid sits a little further from 0.5) — but vol does not
-  predict the *sign*, exactly as the SNR argument requires.
+- **Vol sets magnitude, not direction**: a (contemporaneous, descriptive) regression of
+  |opening mid − 0.5| on in-window realized vol gives a weak corr {f(corr,3)} (higher vol ⇒ the
+  mid sits a little further from 0.5) — but vol does not predict the *sign*, as the SNR argument
+  requires. (Descriptive only — realized vol is not known at the open, so this is not a signal.)
 - **Bounded-martingale convergence**: mean |mid − outcome| falls monotonically to ~0 by close
   (see figure) — the token is a martingale converging to {{0,1}}.
 
@@ -221,13 +223,15 @@ Binance 1m direction matches the Polymarket resolution {f(100*sum(d['agree_rate'
 - Constructed-mid increment lag-1 autocorrelation: **{f(sum(mid_ac)/len(mid_ac),3)}** (mid) vs
   **{f(sum(raw_ac)/len(raw_ac),3)}** (raw prints). The raw negative value is mostly **bid/ask
   bounce** (Roll 1984); on the bounce-reduced mid it shrinks toward 0 (martingale increments).
-- 0.5-crossings/window (resampled mid, 10s grid): mean **{f(sum(cross_mid_rs)/len(cross_mid_rs),1)}**
-  vs raw prints **{f(sum(cross_raw)/len(cross_raw),1)}** — raw counts are inflated by bounce.
-- **Arcsine law**: the fraction of in-window time the mid spends above 0.5 is **U-shaped**
-  (most windows spend nearly all their time on the eventual winning side), matching the Lévy
-  arcsine law for a martingale — NOT clustering of "early reversals." The frequent early
-  crossings are the bounded martingale wandering near 0.5 before committing; there is no
-  serial structure to trade.
+- 0.5-crossings/window, **both on the same 10s grid** (so the gap is bounce, not sampling):
+  mid **{f(sum(cross_mid_rs)/len(cross_mid_rs),1)}** vs raw prints **{f(sum(cross_raw)/len(cross_raw),1)}**
+  — the bounce-reduced mid crosses less.
+- **Arcsine behaviour**: the fraction of in-window time the mid spends above 0.5 is **U-shaped**
+  (most windows spend nearly all their time on the eventual winning side) — qualitatively
+  consistent with the Lévy arcsine law for a martingale, NOT clustering of "early reversals."
+  (The overlay is approximate: the level is fixed at 0.5 while the opening mid is ~0.49, and the
+  token is a *bounded, absorbing* martingale rather than free Brownian motion.) The frequent
+  early crossings are the martingale wandering near 0.5 before committing — no tradeable structure.
 
 ![return distribution](figures/return_dist.png)
 ![arcsine](figures/arcsine.png)
@@ -236,7 +240,8 @@ Binance 1m direction matches the Polymarket resolution {f(100*sum(d['agree_rate'
 The 5-min Up/Down market is an **efficiently-priced at-the-money digital option on a
 near-driftless, fat-tailed random walk**. It is well-calibrated, its mid is a bounded
 martingale converging to the outcome, the underlying is a 5-min random walk, and the
-directional signal-to-noise is ≈0.05. **This is the mechanism behind every empirical
+directional signal-to-noise is **≈{f(sum(abs(r['snr']) for r in ret_rows)/len(ret_rows),3)}**
+in magnitude (≈0). **This is the mechanism behind every empirical
 null result** (arb, momentum, reversal): there is no directional edge to extract. The
 only remaining lever is execution/microstructure — fillability of quote reversals — which
 the forward order-book collector is gathering data to test.
