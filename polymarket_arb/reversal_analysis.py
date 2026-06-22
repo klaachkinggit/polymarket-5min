@@ -21,11 +21,17 @@ from .trades import TradeHistoryClient
 ASSETS = ("btc", "eth", "sol", "bnb", "doge", "xrp", "hype")
 
 
-def load_all(assets=ASSETS, count: int = 500, cache_dir: str = ".cache") -> dict:
-    """Load resolved, non-empty trade-tape windows per asset (cache-first; fetches
-    any uncached slugs via the backward slug walk, then caches them)."""
+def load_all(assets=ASSETS, count: int = 500, cache_dir: str = ".cache",
+             cache_only: bool = True) -> dict:
+    """Load resolved, non-empty trade-tape windows per asset. `cache_only` (default)
+    reads only the disk cache from the newest cached window backward — reproducible and
+    fast, and it does not chase the advancing clock. Pass cache_only=False to fetch the
+    latest windows from the API (grows the cache)."""
     thc = TradeHistoryClient(cache_dir=cache_dir)
-    return {a: [w for w in thc.load_history(a, count=count)
+    # cache_only never touches the network, so tolerate large gaps to span any holes
+    # left by an interrupted fetch and still collect the latest `count` cached windows.
+    gap = 100_000 if cache_only else 40
+    return {a: [w for w in thc.load_history(a, count=count, cache_only=cache_only, max_gap=gap)
                 if w.resolved and w.n_trades > 0] for a in assets}
 
 

@@ -3,6 +3,8 @@
 Network is never touched — `_get` is stubbed with canned pages so the suite
 stays deterministic. Live fetching is exercised separately in the notebook.
 """
+import json
+
 import pytest
 
 from polymarket_arb.trades import (SETTLE_TAIL_S, WINDOW_SECONDS, Trade,
@@ -131,6 +133,21 @@ def test_load_history_walks_back_by_300_and_stops_after_max_gap():
         resolution_yes=1.0)
     out = c.load_history("btc", count=10, end_ts=3000, use_cache=False, max_gap=2)
     assert [w.open_ts for w in out] == [3000, 2700, 2400]
+
+
+def test_load_history_cache_only_reads_disk_and_never_fetches(tmp_path):
+    c = TradeHistoryClient(cache_dir=tmp_path)
+
+    def _boom(slug):
+        raise AssertionError("network must not be touched in cache_only mode")
+    c.fetch_event_by_slug = _boom
+    w = TradeWindow(slug="btc-updown-5m-3000", asset="BTC", open_ts=3000, close_ts=3300,
+                    yes_token="Y", no_token="N",
+                    yes_trades=[Trade(3001, "Y", "BUY", 0.5, 1.0, "0x", 0)], no_trades=[],
+                    resolution_yes=1.0)
+    (tmp_path / "trades-btc-updown-5m-3000.json").write_text(json.dumps(w.to_dict()))
+    out = c.load_history("btc", count=10, cache_only=True, max_gap=2)
+    assert [x.open_ts for x in out] == [3000]   # found via _latest_cached_ts, no network
 
 
 def test_build_window_roundtrips_through_cache_dict():

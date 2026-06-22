@@ -13,6 +13,12 @@ from .optimize import (param_grid, tape_param_grid, tape_threshold_sweep,
 from .reversal_analysis import (autocorr_table, block_bootstrap,
                                 clustered_tstat, friction_grid, load_all,
                                 naive_tstat, sample_decay)
+from .dynamics import (SPOT_ASSETS, all_spot_returns, arcsine_cdf, brier_score,
+                       calibration_curve, crossing_count, digital_snr,
+                       fraction_time_above, lag1_autocorr, load_spot, moments,
+                       opening_mid_prob, opening_token_prob, spot_resolution_agreement,
+                       terminal_convergence, token_mid_path, token_path,
+                       variance_ratio, window_spot_features, yes_no_sum_stats)
 from .synth import generate_dataset, generate_window
 from .tape_engine import TapeBacktester, TapeConfig, TapeFill, TapeResult
 from .trades import Trade, TradeHistoryClient, TradeWindow
@@ -32,4 +38,9 @@ __all__ = [
     "autocorr_stats", "momentum_summary",
     "load_all", "naive_tstat", "clustered_tstat", "block_bootstrap",
     "autocorr_table", "friction_grid", "sample_decay",
+    "SPOT_ASSETS", "all_spot_returns", "arcsine_cdf", "brier_score",
+    "calibration_curve", "crossing_count", "digital_snr", "fraction_time_above",
+    "lag1_autocorr", "load_spot", "moments", "opening_mid_prob", "opening_token_prob",
+    "spot_resolution_agreement", "terminal_convergence", "token_mid_path",
+    "token_path", "variance_ratio", "window_spot_features", "yes_no_sum_stats",
 ]

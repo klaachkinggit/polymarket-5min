@@ -211,18 +211,37 @@ class TradeHistoryClient:
         evs = self.client._get(self.client.gamma, "/events", slug=slug)
         return evs[0] if isinstance(evs, list) and evs else None
 
+    def _latest_cached_ts(self, asset: str) -> int | None:
+        """Newest cached window timestamp for an asset (no network)."""
+        best = None
+        for p in self.cache_dir.glob(f"trades-{asset}-updown-5m-*.json"):
+            try:
+                ts = int(p.stem.rsplit("-", 1)[1])
+            except ValueError:
+                continue
+            if best is None or ts > best:
+                best = ts
+        return best
+
     def load_history(self, asset: str, count: int, end_ts: int | None = None,
                      use_cache: bool = True, max_gap: int = 40,
-                     include_settlement_tail: bool = False) -> list[TradeWindow]:
+                     include_settlement_tail: bool = False,
+                     cache_only: bool = False) -> list[TradeWindow]:
         """Walk slug timestamps BACKWARD from the latest window, fetching each by
         slug. Bypasses the Gamma discovery offset cap (~2000), so history depth is
         unbounded. `max_gap` consecutive missing/unresolved/empty slugs ends the walk.
-        Caches per slug (shared with `load_dataset`)."""
+        Caches per slug (shared with `load_dataset`). `cache_only` reads only the disk
+        cache (no network, no clock-chasing) — used for reproducible analysis."""
         if end_ts is None:
-            evs = self.client.discover_5m_events(asset=asset, closed=True, max_events=1)
-            if not evs:
-                return []
-            end_ts = int(evs[0]["slug"].rsplit("-", 1)[1])
+            if cache_only:
+                end_ts = self._latest_cached_ts(asset)
+                if end_ts is None:
+                    return []
+            else:
+                evs = self.client.discover_5m_events(asset=asset, closed=True, max_events=1)
+                if not evs:
+                    return []
+                end_ts = int(evs[0]["slug"].rsplit("-", 1)[1])
         out: list[TradeWindow] = []
         ts = int(end_ts)
         gap = 0
@@ -232,11 +251,17 @@ class TradeHistoryClient:
             cache_path = self.cache_dir / f"trades-{slug}.json"
             if use_cache and cache_path.exists():
                 w = TradeWindow.from_dict(json.loads(cache_path.read_text()))
+            elif cache_only:
+                w = None                          # offline: uncached slug = gap, never fetch
             else:
-                ev = self.fetch_event_by_slug(slug)
-                w = self.build_window(ev, include_settlement_tail=include_settlement_tail) if ev else None
-                if w is not None and use_cache:
-                    cache_path.write_text(json.dumps(w.to_dict()))
+                try:                              # tolerate a transient API timeout/error
+                    ev = self.fetch_event_by_slug(slug)
+                    w = self.build_window(ev, include_settlement_tail=include_settlement_tail) if ev else None
+                    if w is not None and use_cache:
+                        cache_path.write_text(json.dumps(w.to_dict()))
+                except Exception as ex:           # a single hiccup must not kill the walk
+                    log.warning("fetch failed for %s (%s); treating as gap", slug, ex)
+                    w = None
             if w is None or not w.resolved or w.n_trades == 0:
                 gap += 1
                 continue
