@@ -205,6 +205,42 @@ print(f"headline reversal (0 spread/0 fee): mean/bet {boot['mean']:+.4f}, "
       f"95% CI [{boot['lo']:.4f}, {boot['hi']:.4f}], P(<=0)={boot['p_le_0']:.2f}")
 """)
 
+# ---- 7. regimes ----
+md(r"""
+## 7 — Regimes: do vol regimes favour any strategy, and are they predictable?
+
+Regime = tercile of the **previous** window's underlying realized vol (ex-ante — known at the
+current open). Volatility clusters, so the regime is forecastable. Question: split each
+strategy's per-window PnL by regime — does any combination become favourable?
+""")
+code(r"""
+from polymarket_arb.regimes import (regime_rows, label_terciles, regime_performance,
+                                    vol_persistence, vol_by_hour, REGIMES)
+rows = regime_rows(allw, spot_dir="../data/spot")
+q1, q2 = label_terciles(rows)
+perf = pd.DataFrame(regime_performance(rows))
+display(perf.pivot(index="strategy", columns="regime", values="mean_pnl").round(4))
+display(perf.pivot(index="strategy", columns="regime", values="t").round(2))
+vp = vol_persistence(allw, spot_dir="../data/spot")
+print(f"realized-vol lag-1 autocorr = {vp['autocorr']:.3f} (n={vp['n']}) -> regime is predictable")
+""")
+code(r"""
+idx = {(p["strategy"], p["regime"]): p for p in regime_performance(rows)}
+width = 0.25; xs = np.arange(len(REGIMES))
+for i, s in enumerate(("reversal", "momentum", "arb")):
+    plt.bar(xs + i*width, [idx.get((s, r), {}).get("mean_pnl", np.nan) for r in REGIMES], width, label=s)
+plt.axhline(0, c="grey", lw=.8); plt.xticks(xs + width, [f"{r}-vol" for r in REGIMES])
+plt.ylabel("mean PnL / window"); plt.legend()
+plt.title("Strategy PnL by prior-window vol regime (low-vol favours momentum over reversal)"); plt.show()
+""")
+md(r"""
+**Finding.** The cross-window effect is **regime-dependent**: in **low-vol** windows outcomes
+*persist* (reversal significantly loses, t≈−2.2; momentum is positive, t≈1.8); it washes out in
+med/high vol. So some regimes do favour one strategy — qualitatively confirming the hypothesis.
+But the low-vol momentum tilt (~3.5¢/window, t<2) is smaller than the ~9% effective spread, so
+it is **not tradeable**. Arb loses in every regime. See `research/regime_analysis.md`.
+""")
+
 md(r"""
 ## Verdict
 
