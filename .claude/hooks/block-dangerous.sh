@@ -49,6 +49,23 @@ patterns = [
     r"secrets\.",
 ]
 
+example_markers = {"example", "sample", "template", "dist"}
+
+
+def is_example_template(value):
+    name = Path(value).name.lower()
+    parts = [part for part in name.split(".") if part]
+    return any(part in example_markers for part in parts)
+
+
+def is_sensitive_value(value):
+    if is_example_template(value):
+        return False
+    name = Path(value).name
+    if name.startswith("secrets."):
+        return True
+    return any(re.search(pattern, value) for pattern in patterns if pattern != r"secrets\.")
+
 
 def sensitive(raw):
     expanded = os.path.expandvars(os.path.expanduser(raw))
@@ -61,9 +78,7 @@ def sensitive(raw):
         except Exception:
             pass
         for value in values:
-            if value.endswith(".example"):
-                continue
-            if any(re.search(pattern, value) for pattern in patterns):
+            if is_sensitive_value(value):
                 return True
     return False
 

@@ -10,14 +10,14 @@ CHECK_USER_RESOURCES=0
 usage() {
   cat <<'EOF'
 Usage:
-  tools/audit-capabilities.sh [--expect-profile vercel|supabase|stripe|figma|all] [--check-user-resources]
+  tools/audit-capabilities.sh [--expect-profile vercel|supabase|stripe|figma|ponytail|all] [--check-user-resources]
 
 Checks:
   - Claude/Codex skill and hook mirrors
   - project-local MCP config syntax
   - duplicate Codex MCP sections
   - base MCP servers
-  - expected optional MCP profiles
+  - expected optional MCP/package profiles
   - installed-project CI does not reference harness-only scripts
   - no user-level skills/resources left in ~/.codex, ~/.claude, or ~/.agents when --check-user-resources is set
 EOF
@@ -244,12 +244,15 @@ from pathlib import Path
 failures = []
 warnings = []
 base = {"github", "filesystem", "git", "playwright", "sequential-thinking", "context7"}
-profiles = set()
+mcp_profiles = set()
+package_profiles = set()
 for item in sys.argv[1:]:
     if item == "all":
-        profiles.update(["vercel", "supabase", "stripe", "figma"])
+        mcp_profiles.update(["vercel", "supabase", "stripe", "figma"])
+    elif item == "ponytail":
+        package_profiles.add(item)
     elif item:
-        profiles.add(item)
+        mcp_profiles.add(item)
 
 try:
     claude = json.loads(Path(".mcp.json").read_text()).get("mcpServers", {})
@@ -282,7 +285,7 @@ github_match = re.search(r"^\[mcp_servers\.github\.env\]\n(?P<body>.*?)(?=^\[|\Z
 if not github_match or 'GITHUB_PERSONAL_ACCESS_TOKEN = "$GITHUB_TOKEN"' not in github_match.group("body"):
     failures.append("Codex github MCP should map GITHUB_TOKEN to GITHUB_PERSONAL_ACCESS_TOKEN")
 
-for name in sorted(profiles):
+for name in sorted(mcp_profiles):
     if name not in {"vercel", "supabase", "stripe", "figma"}:
         failures.append("unknown expected profile: %s" % name)
         continue
@@ -290,6 +293,23 @@ for name in sorted(profiles):
         failures.append("Claude profile MCP missing: %s" % name)
     if name not in codex_set:
         failures.append("Codex profile MCP missing: %s" % name)
+
+if package_profiles:
+    try:
+        package = json.loads(Path("package.json").read_text())
+    except Exception as exc:
+        failures.append("could not inspect package.json for package profiles: %s" % exc)
+        package = {}
+    package_deps = {}
+    for section in ("dependencies", "devDependencies", "optionalDependencies"):
+        value = package.get(section)
+        if isinstance(value, dict):
+            package_deps.update(value)
+    for name in sorted(package_profiles):
+        if name != "ponytail":
+            failures.append("unknown expected profile: %s" % name)
+        elif "ponytail" not in package_deps:
+            failures.append("package profile missing from package.json: ponytail")
 
 for msg in failures:
     print("FAIL " + msg)

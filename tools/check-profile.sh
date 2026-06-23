@@ -7,10 +7,10 @@ STRICT_AUTH=0
 usage() {
   cat <<'EOF'
 Usage:
-  tools/check-profile.sh [vercel|supabase|stripe|figma|all] [--strict-auth]
+  tools/check-profile.sh [vercel|supabase|stripe|figma|ponytail|all] [--strict-auth]
 
 With no profile, checks optional profiles currently present in project-local
-Claude/Codex MCP config. With a profile argument, that profile is expected.
+Claude/Codex MCP config and package.json. With a profile argument, that profile is expected.
 EOF
 }
 
@@ -49,7 +49,9 @@ import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-known = ["vercel", "supabase", "stripe", "figma"]
+mcp_profiles = ["vercel", "supabase", "stripe", "figma"]
+package_profiles = {"ponytail": "ponytail"}
+known = mcp_profiles + list(package_profiles)
 profile = os.environ.get("PROFILE", "").lower()
 strict_auth = os.environ.get("STRICT_AUTH") == "1"
 failures = []
@@ -68,20 +70,32 @@ except Exception:
 
 codex_text = Path(".codex/config.toml").read_text() if Path(".codex/config.toml").exists() else ""
 codex = set(re.findall(r"^\[mcp_servers\.([^\].]+)\]", codex_text, re.M))
+try:
+    package = json.loads(Path("package.json").read_text()) if Path("package.json").exists() else {}
+except Exception:
+    package = {}
 
 if profile == "all":
-    expected = set(known)
+    expected_mcp = set(mcp_profiles)
+    expected_packages = set()
 elif profile:
-    expected = {profile}
+    expected_mcp = {profile} if profile in mcp_profiles else set()
+    expected_packages = {profile} if profile in package_profiles else set()
 else:
-    expected = {name for name in known if name in claude or name in codex}
+    expected_mcp = {name for name in mcp_profiles if name in claude or name in codex}
+    package_deps = {}
+    for section in ("dependencies", "devDependencies", "optionalDependencies"):
+        value = package.get(section)
+        if isinstance(value, dict):
+            package_deps.update(value)
+    expected_packages = {name for name, dependency in package_profiles.items() if dependency in package_deps}
 
-if not expected:
-    print("PASS no optional MCP profiles installed")
+if not expected_mcp and not expected_packages:
+    print("PASS no optional profiles installed")
     print("\nProfile check passed: 0 warning(s)")
     sys.exit(0)
 
-for name in sorted(expected):
+for name in sorted(expected_mcp):
     if name not in claude:
         failures.append("Claude profile missing: %s" % name)
     if name not in codex:
@@ -109,8 +123,21 @@ for name in sorted(expected):
     elif name == "figma":
         checks.append("Figma profile uses hosted OAuth MCP; run the client MCP auth flow if prompted")
 
-for name in sorted(expected):
+for name in sorted(expected_mcp):
     print("PASS profile present in Claude and Codex config: %s" % name)
+
+for name in sorted(expected_packages):
+    dependency = package_profiles[name]
+    installed = False
+    for section in ("dependencies", "devDependencies", "optionalDependencies"):
+        value = package.get(section)
+        if isinstance(value, dict) and dependency in value:
+            installed = True
+    if installed:
+        print("PASS package profile present in package.json: %s" % name)
+    else:
+        failures.append("package profile missing from package.json: %s" % name)
+
 for item in checks:
     print("CHECK " + item)
 for warning in warnings:

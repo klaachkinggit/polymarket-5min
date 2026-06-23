@@ -23,6 +23,23 @@ PATTERNS = [
     r"secrets\.",
 ]
 
+EXAMPLE_MARKERS = {"example", "sample", "template", "dist"}
+
+
+def is_example_template(value):
+    name = Path(value).name.lower()
+    parts = [part for part in name.split(".") if part]
+    return any(part in EXAMPLE_MARKERS for part in parts)
+
+
+def is_sensitive(value):
+    if is_example_template(value):
+        return False
+    name = Path(value).name
+    if name.startswith("secrets."):
+        return True
+    return any(re.search(pattern, value) for pattern in PATTERNS if pattern != r"secrets\.")
+
 
 def blocked(raw):
     path = Path(raw).expanduser()
@@ -32,9 +49,7 @@ def blocked(raw):
     except Exception:
         pass
     for value in values:
-        if value.endswith(".example"):
-            continue
-        if any(re.search(pattern, value) for pattern in PATTERNS):
+        if is_sensitive(value):
             print("BLOCKED: sensitive file — %s" % raw, file=sys.stderr)
             sys.exit(2)
 

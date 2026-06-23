@@ -11,7 +11,8 @@ Profiles:
   supabase  Adds Supabase hosted MCP in read-only mode
   stripe    Adds Stripe local MCP via npx, forwarding STRIPE_SECRET_KEY
   figma     Adds Figma hosted MCP: https://mcp.figma.com/mcp
-  all       Adds all profiles above
+  ponytail  Adds the ponytail npm package to package.json
+  all       Adds all MCP profiles above
 
 Supabase environment knobs:
   SUPABASE_PROJECT_REF   Adds project_ref=<id> to the hosted MCP URL
@@ -20,6 +21,7 @@ Supabase environment knobs:
 Writes only project-local config:
   Claude: .mcp.json
   Codex:  .codex/config.toml
+  Package profiles: package.json
 
 Use --dry-run to print the config that would be written without changing files.
 EOF
@@ -125,18 +127,31 @@ def server_defs():
     }
 
 
+def package_defs():
+    return {
+        "ponytail": {"dependency": "ponytail", "version": "^1.0.57"},
+    }
+
+
 PROFILE = os.environ["PROFILE"].lower()
 TOOL = os.environ["TOOL"].lower()
 DRY_RUN = os.environ["DRY_RUN"] == "1"
-ALL = server_defs()
+MCP_PROFILES = server_defs()
+PACKAGE_PROFILES = package_defs()
 
 if PROFILE == "all":
-    names = list(ALL)
-elif PROFILE in ALL:
-    names = [PROFILE]
+    mcp_names = list(MCP_PROFILES)
+    package_names = []
+elif PROFILE in MCP_PROFILES:
+    mcp_names = [PROFILE]
+    package_names = []
+elif PROFILE in PACKAGE_PROFILES:
+    mcp_names = []
+    package_names = [PROFILE]
 else:
     print("unknown profile: %s" % PROFILE, file=sys.stderr)
-    print("known profiles: %s, all" % ", ".join(ALL), file=sys.stderr)
+    known = list(MCP_PROFILES) + list(PACKAGE_PROFILES)
+    print("known profiles: %s, all" % ", ".join(known), file=sys.stderr)
     sys.exit(2)
 
 
@@ -150,7 +165,7 @@ def write_claude(selected):
             raise SystemExit(".mcp.json is not valid JSON: %s" % exc)
     cfg.setdefault("mcpServers", {})
     for name in selected:
-        cfg["mcpServers"][name] = ALL[name]["claude"]
+        cfg["mcpServers"][name] = MCP_PROFILES[name]["claude"]
     if DRY_RUN:
         print("DRY RUN .mcp.json (%s)" % ", ".join(selected))
         print(json.dumps(cfg, indent=2))
@@ -195,7 +210,7 @@ def write_codex(selected):
     path = Path(".codex/config.toml")
     existing = path.read_text() if path.exists() else ""
     base = without_codex_servers(existing, set(selected))
-    blocks = [codex_block(name, ALL[name]["codex"]) for name in selected]
+    blocks = [codex_block(name, MCP_PROFILES[name]["codex"]) for name in selected]
     body = ("\n\n".join(part for part in [base, "\n\n".join(blocks)] if part.strip())).rstrip()
     if DRY_RUN:
         print("DRY RUN .codex/config.toml (%s)" % ", ".join(selected))
@@ -206,8 +221,30 @@ def write_codex(selected):
     print("  wrote .codex/config.toml (%s)" % ", ".join(selected))
 
 
-if TOOL in ("claude", "all"):
-    write_claude(names)
-if TOOL in ("codex", "all"):
-    write_codex(names)
+def write_package(selected):
+    path = Path("package.json")
+    if not path.exists():
+        raise SystemExit("package.json missing; create one before applying package profile: %s" % ", ".join(selected))
+    try:
+        pkg = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise SystemExit("package.json is not valid JSON: %s" % exc)
+    deps = pkg.setdefault("dependencies", {})
+    for name in selected:
+        entry = PACKAGE_PROFILES[name]
+        deps[entry["dependency"]] = entry["version"]
+    if DRY_RUN:
+        print("DRY RUN package.json (%s)" % ", ".join(selected))
+        print(json.dumps(pkg, indent=2))
+        return
+    path.write_text(json.dumps(pkg, indent=2) + "\n")
+    print("  wrote package.json (%s)" % ", ".join(selected))
+
+
+if mcp_names and TOOL in ("claude", "all"):
+    write_claude(mcp_names)
+if mcp_names and TOOL in ("codex", "all"):
+    write_codex(mcp_names)
+if package_names:
+    write_package(package_names)
 PY

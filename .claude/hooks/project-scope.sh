@@ -133,6 +133,8 @@ for key in ("command", "cmd", "shell_command", "script"):
 if not isinstance(command, str) or not command:
     sys.exit(0)
 
+command = command.replace("$(pwd)", str(ROOT))
+command = command.replace("${PWD}", str(ROOT)).replace("$PWD", str(ROOT))
 if "$(" in command or "`" in command:
     block("uninspectable shell expansion", command)
 

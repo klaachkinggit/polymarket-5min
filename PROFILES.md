@@ -130,6 +130,7 @@ tools/apply-profile.sh vercel
 tools/apply-profile.sh supabase
 tools/apply-profile.sh stripe
 tools/apply-profile.sh figma
+tools/apply-profile.sh ponytail
 tools/apply-profile.sh all --dry-run
 tools/audit-capabilities.sh --expect-profile all
 tools/check-profile.sh all
@@ -139,12 +140,20 @@ Remove a profile cleanly:
 
 ```bash
 tools/remove-profile.sh stripe
+tools/remove-profile.sh ponytail
 tools/remove-profile.sh all --dry-run
 ```
 
 Both profile tools support `--tool claude|codex|all`. They are safe for existing
 projects: generated base/profile entries are replaced or removed, while custom
 MCP servers already present in `.mcp.json` or `.codex/config.toml` are preserved.
+
+Package profiles are provider-neutral and work for Claude Code and Codex because
+both agents see the same project files:
+
+| Profile | What it changes | Notes |
+|---------|-----------------|-------|
+| Ponytail | Adds `ponytail@^1.0.57` to `package.json` dependencies | Published npm package, ISC license, no CLI or MCP server. Requires an existing `package.json`; run package-manager install after applying when you want lockfiles updated. |
 
 Profile auth notes:
 

@@ -11,11 +11,13 @@ Profiles:
   supabase  Removes the Supabase MCP profile
   stripe    Removes the Stripe MCP profile
   figma     Removes the Figma MCP profile
-  all       Removes all profiles above
+  ponytail  Removes the ponytail npm package from package.json
+  all       Removes all MCP profiles above
 
 Removes only project-local profile entries:
   Claude: .mcp.json
   Codex:  .codex/config.toml
+  Package profiles: package.json
 
 Use --dry-run to print the config that would remain without changing files.
 EOF
@@ -83,15 +85,22 @@ from pathlib import Path
 PROFILE = os.environ["PROFILE"].lower()
 TOOL = os.environ["TOOL"].lower()
 DRY_RUN = os.environ["DRY_RUN"] == "1"
-KNOWN = ["vercel", "supabase", "stripe", "figma"]
+MCP_PROFILES = ["vercel", "supabase", "stripe", "figma"]
+PACKAGE_PROFILES = {"ponytail": "ponytail"}
 
 if PROFILE == "all":
-    names = KNOWN
-elif PROFILE in KNOWN:
-    names = [PROFILE]
+    mcp_names = MCP_PROFILES
+    package_names = []
+elif PROFILE in MCP_PROFILES:
+    mcp_names = [PROFILE]
+    package_names = []
+elif PROFILE in PACKAGE_PROFILES:
+    mcp_names = []
+    package_names = [PROFILE]
 else:
     print("unknown profile: %s" % PROFILE, file=sys.stderr)
-    print("known profiles: %s, all" % ", ".join(KNOWN), file=sys.stderr)
+    known = MCP_PROFILES + list(PACKAGE_PROFILES)
+    print("known profiles: %s, all" % ", ".join(known), file=sys.stderr)
     sys.exit(2)
 
 
@@ -143,8 +152,36 @@ def remove_codex(selected):
     print("  wrote .codex/config.toml (removed %s)" % ", ".join(selected))
 
 
-if TOOL in ("claude", "all"):
-    remove_claude(names)
-if TOOL in ("codex", "all"):
-    remove_codex(names)
+def remove_package(selected):
+    path = Path("package.json")
+    if not path.exists():
+        if DRY_RUN:
+            print("DRY RUN package.json after removing %s" % ", ".join(selected))
+        return
+    try:
+        pkg = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise SystemExit("package.json is not valid JSON: %s" % exc)
+    for name in selected:
+        dependency = PACKAGE_PROFILES[name]
+        for key in ("dependencies", "devDependencies", "optionalDependencies"):
+            section = pkg.get(key)
+            if isinstance(section, dict):
+                section.pop(dependency, None)
+                if not section:
+                    pkg.pop(key, None)
+    if DRY_RUN:
+        print("DRY RUN package.json after removing %s" % ", ".join(selected))
+        print(json.dumps(pkg, indent=2))
+        return
+    path.write_text(json.dumps(pkg, indent=2) + "\n")
+    print("  wrote package.json (removed %s)" % ", ".join(selected))
+
+
+if mcp_names and TOOL in ("claude", "all"):
+    remove_claude(mcp_names)
+if mcp_names and TOOL in ("codex", "all"):
+    remove_codex(mcp_names)
+if package_names:
+    remove_package(package_names)
 PY

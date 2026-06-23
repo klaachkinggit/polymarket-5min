@@ -38,7 +38,7 @@ python3 tools/gen-mcp.py claude    # → .mcp.json           (root)
 python3 tools/gen-mcp.py codex     # → .codex/config.toml  (TOML)
 ```
 Base servers: `github`, `filesystem`, `git` (`uvx mcp-server-git --repository .`), `playwright`, `sequential-thinking`, `context7`, `db` (if `DATABASE_URL` set). Agents should use `sequential-thinking` for complex planning/debugging and `context7` for version-sensitive library/API docs.
-Tool not an emitter → translate `.mcp.json` (generic JSON) to your tool's format; adding an emitter is one function in `gen-mcp.py`. Stack-specific servers (Vercel, Supabase, Stripe, Figma) are project-local profiles: `tools/apply-profile.sh <name> [--tool claude|codex|all] [--dry-run]`, and removal is `tools/remove-profile.sh <name>`. Existing custom MCP servers are preserved. Discover other servers live via `registry.modelcontextprotocol.io` / awesome-mcp-servers / mcp.so / Smithery / PulseMCP. Don't re-add the base 5.
+Tool not an emitter → translate `.mcp.json` (generic JSON) to your tool's format; adding an emitter is one function in `gen-mcp.py`. Stack-specific servers (Vercel, Supabase, Stripe, Figma) are project-local profiles: `tools/apply-profile.sh <name> [--tool claude|codex|all] [--dry-run]`, and removal is `tools/remove-profile.sh <name>`. Package profiles are provider-neutral; `tools/apply-profile.sh ponytail` adds `ponytail@^1.0.57` to `package.json`. Existing custom MCP servers are preserved. Discover other servers live via `registry.modelcontextprotocol.io` / awesome-mcp-servers / mcp.so / Smithery / PulseMCP. Don't re-add the base 5.
 
 ## Runtime hooks — Claude Code & Codex
 Provider-local scripts read the tool-call as JSON on stdin and exit `2` to block.
