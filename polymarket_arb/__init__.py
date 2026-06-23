@@ -21,6 +21,8 @@ from .dynamics import (SPOT_ASSETS, all_spot_returns, arcsine_cdf, brier_score,
                        variance_ratio, window_spot_features, yes_no_sum_stats)
 from .regimes import (REGIMES, label_terciles, regime_performance, regime_rows,
                       strategy_pnls, vol_by_hour, vol_persistence)
+from .book_replay import (build_opening_quote_index, load_opening_quotes,
+                          window_open_quotes)
 from .synth import generate_dataset, generate_window
 from .tape_engine import TapeBacktester, TapeConfig, TapeFill, TapeResult
 from .trades import Trade, TradeHistoryClient, TradeWindow
@@ -47,4 +49,5 @@ __all__ = [
     "token_path", "variance_ratio", "window_spot_features", "yes_no_sum_stats",
     "REGIMES", "label_terciles", "regime_performance", "regime_rows",
     "strategy_pnls", "vol_by_hour", "vol_persistence",
+    "build_opening_quote_index", "load_opening_quotes", "window_open_quotes",
 ]

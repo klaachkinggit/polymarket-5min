@@ -241,6 +241,42 @@ But the low-vol momentum tilt (~3.5¢/window, t<2) is smaller than the ~9% effec
 it is **not tradeable**. Arb loses in every regime. See `research/regime_analysis.md`.
 """)
 
+# ---- 8. OOS test of the low-vol momentum tilt ----
+md(r"""
+## 8 — Out-of-sample test of the low-vol momentum tilt
+
+The low-vol momentum tilt (§7) was the one suggestive thread. Two honest stress tests:
+(A) a temporal train/test split, and (B) filling the bet at the **real order-book ask** we
+collected live (`book_replay`). See `research/oos_momentum.md`.
+""")
+code(r"""
+import analyze_oos
+from polymarket_arb import load_opening_quotes
+# (A) statistical out-of-sample (temporal split); reuses this notebook's windows
+A = analyze_oos.statistical_oos(regime_rows(allw, spot_dir="../data/spot"))
+print("(A) low-vol MOMENTUM  train:  mean={:+.4f} t={:+.2f}  |  test (OOS): mean={:+.4f} t={:+.2f}".format(
+    A['train_momentum']['mean'], A['train_momentum']['t'], A['test_momentum']['mean'], A['test_momentum']['t']))
+# (B) real order-book spread (causal, post-open) — needs the prebuilt index
+idx = load_opening_quotes("../data/book/opening_quotes.json")
+if idx:
+    rs = analyze_oos.real_spread_rows(allw, idx, spot_dir="../data/spot")
+    lo = sorted(r['prev_rvol'] for r in rs); q1 = lo[len(lo)//3] if lo else float('nan')
+    low = [(r['pnl'], r['cur_open_ts']) for r in rs if r['prev_rvol'] <= q1]
+    hs = sum(r['half_spread'] for r in rs)/len(rs)
+    c = clustered_tstat([v for v,_ in low], [t for _,t in low])
+    print(f"(B) real half-spread={hs:.4f} ({len(rs)} pairs); low-vol momentum at real ask: "
+          f"mean={c['mean']:+.4f} t={c['t']:+.2f} n={c['n']}")
+else:
+    print("(B) build the book index first: python -m polymarket_arb.book_replay --build")
+""")
+md(r"""
+**Result.** (A) The tilt does **not** survive the hold-out (test t≈1.4, ~0 in train) — an
+in-sample artifact of scanning 9 regime×strategy cells. (B) At the real, causal post-open ask
+(~23s in, price already ≈0.52, half-spread ≈2.4¢) low-vol momentum **loses** (~−5¢/bet). The
+real book is far tighter than the ~9% print-overround suggested, but the early move is already
+priced by the time the signal is actionable. **No tradeable edge.**
+""")
+
 md(r"""
 ## Verdict
 
